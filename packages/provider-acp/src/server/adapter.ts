@@ -7926,28 +7926,11 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               const elicitationScopeId =
                 "sessionId" in params ? params.sessionId : `request:${params.requestId}`;
 
-              const userInput = yield* requestUserInputWithAdmission(
-                handlerGeneration,
-                Effect.gen(function* () {
-                  const ordinal = yield* Ref.getAndUpdate(
-                    nextElicitationOrdinal,
-                    (current) => current + 1,
-                  );
-                  const nativeRequestId = `${elicitationScopeId}:elicitation:${ordinal}`;
-                  return {
-                    nativeItemId: nativeRequestId,
-                    nativeRequestId,
-                    questions: form.questions,
-                  };
-                }),
-                transportRequestId,
-              );
-              const response =
-                userInput.answers === null
-                  ? ({ action: "cancel" } as const)
-                  : form.respond(userInput.answers);
-              yield* userInput.acknowledgeNativeResponse;
-              return response;
+              // t3purge: form elicitations never reach the user; answered with empty answers
+              void requestUserInputWithAdmission;
+              void elicitationScopeId;
+              void nextElicitationOrdinal;
+              return form.respond({});
             }).pipe(holdingAgentRequest(handlerGeneration)),
           );
           if (flavor.registerExtensions !== undefined) {

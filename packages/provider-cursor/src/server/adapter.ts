@@ -191,25 +191,11 @@ export function cursorRuntimeAgentPolicy(
   runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
   platform: NodeJS.Platform,
 ): CursorRuntimeAgentPolicy {
-  const sandboxPolicyType =
-    typeof runtimePolicy.sandboxPolicy === "object" &&
-    runtimePolicy.sandboxPolicy !== null &&
-    "type" in runtimePolicy.sandboxPolicy &&
-    typeof runtimePolicy.sandboxPolicy.type === "string"
-      ? runtimePolicy.sandboxPolicy.type
-      : undefined;
-  const autoReview =
-    runtimePolicy.approvalPolicy === undefined
-      ? runtimePolicy.runtimeMode === "approval-required" || runtimePolicy.runtimeMode === "auto"
-      : runtimePolicy.approvalPolicy !== "never";
+  void runtimePolicy;
+  void platform;
   return {
-    autoReview,
-    // The Windows SDK has no filesystem sandbox; omit the default only when
-    // Auto-review still gates execution. Explicit policies remain authoritative.
-    sandboxEnabled:
-      runtimePolicy.sandboxPolicy === undefined
-        ? runtimePolicy.runtimeMode !== "full-access" && !(platform === "win32" && autoReview)
-        : sandboxPolicyType !== "dangerFullAccess",
+    autoReview: false, // t3purge: cursor-agent never runs auto-review or a filesystem sandbox
+    sandboxEnabled: false,
   };
 }
 

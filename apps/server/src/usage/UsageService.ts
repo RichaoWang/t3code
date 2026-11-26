@@ -1184,6 +1184,126 @@ export const make = Effect.gen(function* () {
         ),
       );
 
+    // t3purge: devin cli usage scan — reads sessions.db (snapshotted via node:sqlite)
+    // and feeds per-request token metrics into the usage aggregator so the usage page
+    // shows a devin provider row.
+    yield* Effect.tryPromise({
+      try: async () => {
+        const { createRequire } = await import("node:module");
+        const require2 = createRequire(import.meta.url);
+        const fs2 = require2("node:fs") as typeof import("node:fs");
+        const os2 = require2("node:os") as typeof import("node:os");
+        const { DatabaseSync } = require2("node:sqlite") as {
+          DatabaseSync: new (
+            path: string,
+            opts?: { open?: boolean; readOnly?: boolean },
+          ) => {
+            prepare(sql: string): { all(...args: unknown[]): unknown[] };
+            close(): void;
+          };
+        };
+        const appData = hostEnvironment["APPDATA"];
+        const candidates = [
+          typeof appData === "string" && appData.length > 0
+            ? path.join(appData, "devin", "cli")
+            : undefined,
+          path.join(os2.homedir(), "AppData", "Roaming", "devin", "cli"),
+          path.join(os2.homedir(), ".config", "devin", "cli"),
+          path.join(os2.homedir(), "Library", "Application Support", "devin", "cli"),
+        ].filter((c): c is string => typeof c === "string");
+        let devinCliDir: string | undefined;
+        for (const candidate of candidates) {
+          if (fs2.existsSync(path.join(candidate, "sessions.db"))) {
+            devinCliDir = candidate;
+            break;
+          }
+        }
+        if (devinCliDir === undefined) return;
+        const dbFile = path.join(devinCliDir, "sessions.db");
+        const snapshot = path.join(config.baseDir, "devin-usage-snapshot.db");
+        const st = fs2.statSync(dbFile);
+        const sig = st.mtimeMs + ":" + st.size;
+        const g = globalThis as { __t3DevinUsageSig?: string };
+        if (g.__t3DevinUsageSig !== sig) {
+          for (const suffix of ["", "-wal", "-shm"]) {
+            const src = dbFile + suffix;
+            if (fs2.existsSync(src)) fs2.copyFileSync(src, snapshot + suffix);
+          }
+          g.__t3DevinUsageSig = sig;
+        }
+        const db = new DatabaseSync(snapshot, { readOnly: true });
+        try {
+          const rows = db
+            .prepare(
+              "select session_id, chat_message from message_nodes where json_extract(chat_message,'$.role')='assistant'",
+            )
+            .all() as { session_id: string; chat_message: string }[];
+          const sessionIds = new Set<string>();
+          let counted = false;
+          for (const row of rows) {
+            let meta: unknown;
+            try {
+              // @effect-diagnostics-next-line globalJsonInEffect:off -- devin metadata is best-effort parsed inside try/catch
+              meta = JSON.parse(row.chat_message).metadata;
+            } catch {
+              continue;
+            }
+            if (meta === null || typeof meta !== "object") continue;
+            const m = meta as Record<string, unknown>;
+            const metrics = m.metrics as Record<string, unknown> | undefined;
+            const requestId = m.request_id;
+            if (metrics === undefined || typeof requestId !== "string") continue;
+            const timestampMs = Date.parse(
+              typeof m.started_generation_at === "string"
+                ? m.started_generation_at
+                : typeof m.created_at === "string"
+                  ? m.created_at
+                  : "",
+            );
+            if (!Number.isFinite(timestampMs)) continue;
+            const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+            const record: UsageRecord = {
+              provider: "devin",
+              timestampMs,
+              model: typeof m.generation_model === "string" ? m.generation_model : "unknown",
+              sessionId: row.session_id,
+              totals: {
+                uncachedInputTokens: num(metrics.input_tokens),
+                cachedInputTokens: num(metrics.cache_read_tokens),
+                cacheCreationTokens: num(metrics.cache_creation_tokens),
+                outputTokens: num(metrics.output_tokens),
+                reasoningTokens: 0,
+              },
+              reportedCostUsd: null,
+              speed: "standard",
+              dedupeKey: "devin:" + requestId,
+            };
+            if (aggregator.add(record, devinCliDir)) {
+              counted = true;
+              if (row.session_id.length > 0) sessionIds.add(row.session_id);
+            }
+          }
+          sources.push({
+            fingerprint: {
+              hostId,
+              provider: "devin",
+              resolvedHomePath: devinCliDir,
+              volumeId: "",
+            },
+            status: counted ? "ok" : "missing",
+            scannedFiles: counted ? 1 : 0,
+            skippedFiles: 0,
+            malformedRecords: 0,
+            distinctSessions: sessionIds.size,
+            message: counted ? null : "No usable devin session metrics found.",
+          });
+        } finally {
+          db.close();
+        }
+      },
+      catch: () => "devin-usage-scan-failed" as const,
+    }).pipe(Effect.ignore);
+
     const aggregated = aggregator.finish();
     const readAt = yield* DateTime.now;
     const finishedAtMs = yield* Clock.currentTimeMillis;

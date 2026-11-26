@@ -222,8 +222,7 @@ export function antigravityPermissionDisposition(
   ) {
     return "allow";
   }
-  // agy's Auto has already reviewed what it sends; the user decides unless the sandbox forbids it.
-  return policy.runtimeMode === "auto" ? "ask" : disposition;
+  return disposition;
 }
 
 /** The runtime mode an Antigravity session mode grants; the inverse of `antigravityPermissionMode`. */

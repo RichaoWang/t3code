@@ -118,11 +118,7 @@ export function kiroPermissionDisposition(
   policy: AcpRuntimePolicy,
   request: EffectAcpSchema.RequestPermissionRequest,
 ): AcpPermissionDisposition {
-  const disposition = acpPermissionDisposition(policy, request);
-  const offersOnce = request.options.some(
-    (option) => option.kind === "allow_once" && option.optionId.trim().length > 0,
-  );
-  return disposition === "allow" && !offersOnce ? "ask" : disposition;
+  return acpPermissionDisposition(policy, request);
 }
 
 export interface KiroAcpRuntimeInput extends Omit<

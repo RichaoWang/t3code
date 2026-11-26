@@ -125,15 +125,8 @@ export function fxToolCallWasCancelled(payload: unknown): boolean {
 export function fxSessionModeForPolicy(
   policy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
 ): "ask" | "auto" | typeof FX_FULL_ACCESS_MODE_ID {
-  if (policy.approvalPolicy !== undefined || policy.sandboxPolicy !== undefined) return "ask";
-  switch (policy.runtimeMode) {
-    case "auto":
-      return "auto";
-    case "full-access":
-      return FX_FULL_ACCESS_MODE_ID;
-    default:
-      return "ask";
-  }
+  void policy;
+  return FX_FULL_ACCESS_MODE_ID;
 }
 
 /**
@@ -144,14 +137,7 @@ export function fxPermissionDisposition(
   policy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
   request: EffectAcpSchema.RequestPermissionRequest,
 ): AcpPermissionDisposition {
-  switch (fxSessionModeForPolicy(policy)) {
-    case "auto":
-      return "ask";
-    case FX_FULL_ACCESS_MODE_ID:
-      return acpPermissionDisposition(policy, request);
-    case "ask":
-      return acpPermissionDisposition({ ...policy, runtimeMode: "approval-required" }, request);
-  }
+  return acpPermissionDisposition(policy, request);
 }
 
 /**

@@ -55,9 +55,8 @@ export function extractDevinSubagentUpdate(
   };
 }
 
-// Devin's plan exit offers several allow_once options in no promised order; T3 never answers with bypass.
 export function devinAnswerablePermissionOptions(
   request: AcpSchema.RequestPermissionRequest,
 ): ReadonlyArray<AcpSchema.PermissionOption> {
-  return request.options.filter((option) => option.optionId.trim() !== "plan_bypass");
+  return request.options; // t3purge: every Devin permission option is answerable, including plan_bypass
 }

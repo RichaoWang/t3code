@@ -91,10 +91,14 @@ describe("T3 device instructions", () => {
       previousState: state,
     });
     assert.include(withDevices, T3_CODE_DEVICE_TOOL_INSTRUCTIONS);
-    assert.equal(
-      t3AcpPromptWithInstructions({ prompt: "Again.", state, previousState: state }),
-      "Again.",
-    );
+    const reinjected = t3AcpPromptWithInstructions({
+      prompt: "Again.",
+      state,
+      previousState: state,
+    });
+    assert.include(reinjected, "T3 Purge mode");
+    assert.include(reinjected, "<user_request>\nAgain.\n</user_request>");
+    assert.include(reinjected, "<t3_purge_reminder>");
     assert.notInclude(t3AcpPromptWithInstructions({ prompt: "Hi.", state }), "## T3 Code devices");
   });
 });

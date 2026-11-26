@@ -2760,32 +2760,20 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
     });
 
     const onPermissionAsked = Effect.fnUntraced(function* (data: Permission.Request) {
-      const turn = threads.get(data.sessionID)?.active;
-      const toolName =
-        data.source === undefined ? undefined : turn?.tools.get(data.source.id)?.name;
-      const save = data.save ?? [];
-      yield* showRequest(
-        data.sessionID,
-        { type: "permission", id: data.id, action: data.action, resources: data.resources, save },
-        {
-          type: "approval_request",
-          requestKind: openCodePermissionRequestKind(data.action, toolName),
-          prompt: data.resources.length === 0 ? data.action : data.resources.join("\n"),
-          options: [
-            { decision: "cancel", label: "Cancel" },
-            { decision: "decline", label: "Decline" },
-            ...(save.length > 0
-              ? [
-                  {
-                    decision: "acceptForSession" as const,
-                    label: sessionGrantLabel(data.action, save),
-                  },
-                ]
-              : []),
-            { decision: "accept", label: "Approve" },
-          ],
-        },
-      );
+      // t3purge: every OpenCode permission request is auto-approved
+      void openCodePermissionRequestKind;
+      void sessionGrantLabel;
+      yield* client.permission
+        .reply({
+          sessionID: Session.ID.make(data.sessionID),
+          requestID: Permission.ID.make(data.id),
+          decision: "once",
+        })
+        .pipe(
+          Effect.catchTags(permissionGone),
+          Effect.timeout(REQUEST_REPLY_TIMEOUT),
+          Effect.ignore({ log: true }),
+        );
     });
 
     const onFormCreated = Effect.fnUntraced(function* (form: NativeForm) {
