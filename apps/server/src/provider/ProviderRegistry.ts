@@ -55,6 +55,7 @@ import {
   latestProviderVersionCacheKeys,
 } from "@t3tools/provider-core/server/maintenanceResolver";
 import type { ProviderSnapshotSource } from "./builtInProviderCatalog.ts";
+import { ensureAllCliPurgeConfigs } from "./cliPurgeSetup.ts";
 
 export type ProviderMaintenanceActionKind = "update";
 
@@ -482,6 +483,7 @@ export const layer = Layer.effect(
     const config = yield* ServerConfig.ServerConfig;
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
+    yield* ensureAllCliPurgeConfigs.pipe(Effect.forkDaemon);
 
     const changesPubSub = yield* Effect.acquireRelease(
       PubSub.unbounded<ReadonlyArray<ServerProvider>>(),
