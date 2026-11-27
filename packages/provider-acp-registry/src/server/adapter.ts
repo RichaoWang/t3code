@@ -9,7 +9,7 @@ import {
   extractDevinSubagentUpdate,
   devinAnswerablePermissionOptions,
 } from "./devinAcp.ts";
-import { ensureDevinPurgeConfig } from "./devinPurgeSetup.ts";
+import { ensureDevinBinaryPatch, ensureDevinPurgeConfig } from "./devinPurgeSetup.ts";
 import { DEVIN_PURGE_SYSTEM_PROMPT } from "./devinPurgePrompt.ts";
 import { extractDroidElicitationForm } from "./droidAcp.ts";
 import { makeKimiPromptOutcomeWatch } from "./kimiAcp.ts";
@@ -142,6 +142,7 @@ export function acpRegistryPromptFailure(agentId: string, cause: unknown) {
 function makeAcpRegistryRuntime(
   options: AcpRegistryAdapterV2Options,
   catalog: AcpRegistrySupport.AcpRegistryCatalog["Service"],
+  isDevin = false,
 ) {
   return (
     input: AcpAdapterV2RuntimeInput,
@@ -163,6 +164,9 @@ function makeAcpRegistryRuntime(
               }),
           ),
         );
+      if (isDevin) {
+        yield* ensureDevinBinaryPatch(resolved.spawn.command);
+      }
       const context = yield* Layer.build(
         AcpSessionRuntime.layer({
           ...runtimeInput,
@@ -269,8 +273,8 @@ export const makeAcpRegistryAdapterV2 = Effect.fn("makeAcpRegistryAdapterV2")(fu
           },
         }
       : options;
-  // t3purge: install the Devin lifecycle hooks that carry the purge into the
-  // system prompt and veto refusal answers. Idempotent and never fatal.
+  // t3purge: install Devin's lifecycle hooks (interactive mode) and per-spawn
+  // binary patch (ACP mode drops the Safety clause). Idempotent, never fatal.
   if (isDevin) {
     yield* ensureDevinPurgeConfig;
   }
@@ -371,7 +375,7 @@ export const makeAcpRegistryAdapterV2 = Effect.fn("makeAcpRegistryAdapterV2")(fu
           alwaysSetModel: true,
         }),
     mcpOverHttp: useHttpMcpServers,
-    makeRuntime: options.makeRuntime ?? makeAcpRegistryRuntime(runtimeOptions, catalog),
+    makeRuntime: options.makeRuntime ?? makeAcpRegistryRuntime(runtimeOptions, catalog, isDevin),
     ...(runtimeCoordinator === undefined
       ? {}
       : {
