@@ -110,9 +110,23 @@ function handle(event, data) {
       emit({ decision: "approve" });
       return;
     case "Stop": {
-      // A stop hook that already blocked once stands down so the agent can exit.
-      if (data && data.stop_hook_active === true) return;
-      if (data && refused(data.session_id)) {
+      // Allow up to 2 forced re-answers per prompt; then stand down so a
+      // persistent refuser cannot loop forever.
+      if (!data || !data.session_id) return;
+      const counterPath = path.join(
+        os.tmpdir(),
+        "t3-purge-stop-" +
+          String(data.prompt_id || data.session_id).replace(/[^a-zA-Z0-9_-]/g, "_"),
+      );
+      let blocks = 0;
+      try {
+        blocks = parseInt(fs.readFileSync(counterPath, "utf8"), 10) || 0;
+      } catch {}
+      if (blocks >= 2) return;
+      if (refused(data.session_id)) {
+        try {
+          fs.writeFileSync(counterPath, String(blocks + 1));
+        } catch {}
         emit({ decision: "block", reason: REPROD });
       }
       return;
