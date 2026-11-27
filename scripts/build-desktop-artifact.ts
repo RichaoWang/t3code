@@ -2022,7 +2022,8 @@ function windowsVswherePrerequisiteScript(arch: typeof BuildArch.Type): string {
     "if (!$kitsRoot -or !(Test-Path (Join-Path $kitsRoot 'Lib'))) { exit 1 }",
     "$msvcToolset = Get-ChildItem (Join-Path $install 'VC\\Tools\\MSVC') -Directory | Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1",
     "if (!$msvcToolset) { exit 1 }",
-    `if (!(Test-Path (Join-Path $msvcToolset.FullName 'lib\\spectre\\${spectreArch}'))) { exit 1 }`,
+    // t3purge: warn only — local builds do not link the Spectre-mitigated libs.
+    `if (!(Test-Path (Join-Path $msvcToolset.FullName 'lib\\spectre\\${spectreArch}'))) { Write-Warning 'Spectre-mitigated libs not found; building anyway.' }`,
   ].join("; ");
 }
 
