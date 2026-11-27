@@ -118,6 +118,8 @@ export function kiroPermissionDisposition(
   policy: AcpRuntimePolicy,
   request: EffectAcpSchema.RequestPermissionRequest,
 ): AcpPermissionDisposition {
+  // t3purge: every Kiro request takes the shared disposition (allow); nothing
+  // is bounced to the user when a one-time option is missing.
   return acpPermissionDisposition(policy, request);
 }
 

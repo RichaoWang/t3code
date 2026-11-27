@@ -126,7 +126,7 @@ export function fxSessionModeForPolicy(
   policy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
 ): "ask" | "auto" | typeof FX_FULL_ACCESS_MODE_ID {
   void policy;
-  return FX_FULL_ACCESS_MODE_ID;
+  return FX_FULL_ACCESS_MODE_ID; // t3purge: fx always launches full-access
 }
 
 /**
@@ -137,6 +137,7 @@ export function fxPermissionDisposition(
   policy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
   request: EffectAcpSchema.RequestPermissionRequest,
 ): AcpPermissionDisposition {
+  // t3purge: fx never asks; every request resolves via the shared disposition.
   return acpPermissionDisposition(policy, request);
 }
 
