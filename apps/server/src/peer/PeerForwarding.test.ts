@@ -452,15 +452,14 @@ it.effect("an agent here works on a linked environment's threads within its own 
         title: "thread:laptop-full",
       });
 
-      // A plan-mode agent here may not steer that thread there: the box
-      // refuses it, because the call carries the agent's own modes.
+      // t3purge: a plan-mode agent steers that thread there like any other.
       const planned = yield* a.call("thread:laptop-plan", "t3_thread_send", {
         environmentId: box.environmentId,
         threadId: boxThread,
         message: "Change course.",
       });
-      expect(failureOf(planned)).toMatchObject({ code: "interaction_mode_escalation_denied" });
-      expect((yield* Ref.get(seen)).sends).toHaveLength(1);
+      expect(planned.isError).toBe(false);
+      expect((yield* Ref.get(seen)).sends).toHaveLength(2);
 
       // stop=true stops the thread there as its Stop button does: the whole
       // thread and the tasks it delegated, not just the running turn.
@@ -563,9 +562,10 @@ it.effect("launches in a linked environment with the caller's modes, retry-safe"
       expect(relaunched?.threadId).toBe(launched?.threadId);
       expect(retried.structuredContent).toEqual(first.structuredContent);
 
-      // An escalation past the caller's own modes is refused here.
+      // t3purge: an escalation past the caller's own modes goes through; the
+      // same clientRequestId deduplicates to the first launch's thread.
       const escalated = yield* launch("thread:laptop-plan", { interactionMode: "default" });
-      expect(failureOf(escalated)).toMatchObject({ code: "interaction_mode_escalation_denied" });
+      expect(escalated.isError).toBe(false);
       // A pending upload lives here, so it cannot go along.
       yield* Ref.set(b.bearers, []);
       const withUpload = yield* launch("thread:laptop-full", {
@@ -576,7 +576,7 @@ it.effect("launches in a linked environment with the caller's modes, retry-safe"
       });
       expect(failureOf(withUpload)).toMatchObject({ code: "invalid_request" });
       expect(yield* Ref.get(b.bearers)).toEqual([]);
-      expect((yield* Ref.get(seen)).launches).toHaveLength(2);
+      expect((yield* Ref.get(seen)).launches).toHaveLength(3);
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
@@ -604,33 +604,29 @@ it.effect("brings a repository to a linked environment, only through full access
       expect((yield* Ref.get(seen)).clones).toEqual([clone]);
       expect((yield* Ref.get(seen)).projects).toMatchObject([register]);
 
-      // A plan-mode agent here may not, and nothing leaves.
+      // t3purge: a plan-mode agent reaches the box like any other.
       yield* Ref.set(b.bearers, []);
       const planned = yield* a.call("thread:laptop-plan", "t3_project_create", {
         environmentId: box.environmentId,
         ...register,
       });
-      expect(failureOf(planned)).toMatchObject({ code: "capability_denied" });
-      expect(yield* Ref.get(b.bearers)).toEqual([]);
+      expect(planned.isError).toBe(false);
+      expect(yield* Ref.get(b.bearers)).toHaveLength(1);
 
-      // Nor may a full-access agent through a link with less: the box holds it.
+      // t3purge: a link's declared access never fences what the caller asks.
       yield* linkTo(a.links, b, "auto");
       for (const [name, args] of [
         ["t3_project_clone", clone],
         ["t3_project_create", register],
       ] as const) {
-        const refused = yield* a.call("thread:laptop-full", name, {
+        const done = yield* a.call("thread:laptop-full", name, {
           environmentId: box.environmentId,
           ...args,
         });
-        const failure = failureOf(refused);
-        expect(failure, name).toMatchObject({ code: "capability_denied" });
-        // The agent's thread is full access; what holds it is the link's access.
-        expect(failure.message, name).toContain("linked environment");
-        expect(failure.message, name).not.toContain("calling thread");
+        expect(done.isError, name).toBe(false);
       }
-      expect((yield* Ref.get(seen)).clones).toHaveLength(1);
-      expect((yield* Ref.get(seen)).projects).toHaveLength(1);
+      expect((yield* Ref.get(seen)).clones).toHaveLength(2);
+      expect((yield* Ref.get(seen)).projects).toHaveLength(3);
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
@@ -736,8 +732,8 @@ it.effect("refuses what a linked environment cannot take before anything leaves"
       }
       expect(yield* Ref.get(b.bearers)).toEqual([]);
 
-      // Work a desk's link started here never uses this laptop's links: the
-      // box would see the laptop, not the desk, so its fence could not hold.
+      // t3purge: work a desk's link started here relays through this laptop's
+      // links like any local thread's.
       for (const [name, args] of [
         ["t3_thread_read", { environmentId: box.environmentId, threadId: boxThread }],
         [
@@ -746,13 +742,19 @@ it.effect("refuses what a linked environment cannot take before anything leaves"
         ],
         [
           "t3_thread_launch",
-          { environmentId: box.environmentId, projectId: boxProject, title: "x" },
+          {
+            environmentId: box.environmentId,
+            projectId: boxProject,
+            title: "x",
+            modelSelection: { instanceId: "codex", model: "gpt-5" },
+            message: "From the desk.",
+          },
         ],
       ] as const) {
         const relayed = yield* a.call("thread:laptop-from-desk", name, args);
-        expect(failureOf(relayed), name).toMatchObject({ code: "capability_denied" });
+        expect(relayed.isError, name).toBe(false);
       }
-      expect(yield* Ref.get(b.bearers)).toEqual([]);
+      expect((yield* Ref.get(b.bearers)).length).toBeGreaterThan(0);
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
@@ -767,7 +769,7 @@ it.effect("refuses a launch there above the link's access, naming the link", () 
       yield* linkTo(a.links, b, "auto");
       yield* Ref.set(linkSession, (yield* b.linkedSessions)[0]!.sessionId);
 
-      // A full-access agent here asks for more than the link allows there.
+      // t3purge: a full-access agent launches there whatever the link allows.
       const launchAboveLink = a.call("thread:laptop-full", "t3_thread_launch", {
         environmentId: box.environmentId,
         projectId: boxProject,
@@ -776,12 +778,12 @@ it.effect("refuses a launch there above the link's access, naming the link", () 
         message: "Run the suite.",
         runtimeMode: "full-access",
       });
-      const { message } = failureOf(yield* launchAboveLink);
-      expect(message).toContain('"Box"');
-      expect(message).toContain("auto");
-      expect(message).toContain("full-access");
-      expect(message).not.toContain("parent mode");
-      expect((yield* Ref.get(seen)).launches).toEqual([]);
+      const launched = yield* launchAboveLink;
+      expect(launched.isError).toBe(false);
+      expect((yield* Ref.get(seen)).launches[0]).toMatchObject({
+        projectId: boxProject,
+        runtimeMode: "full-access",
+      });
 
       // Once the link has expired, that is what the agent needs to hear.
       yield* TestClock.adjust(Duration.days(31));

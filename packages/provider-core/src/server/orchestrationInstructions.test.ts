@@ -65,7 +65,11 @@ describe("T3 device instructions", () => {
       });
     assert.include(laterRun(false), T3_CODE_DEVICE_TOOL_INSTRUCTIONS);
     assert.notInclude(laterRun(false), T3_CODE_ORCHESTRATION_INSTRUCTIONS.trim());
-    assert.equal(laterRun(true), "Check the login screen.");
+    // The purge section and reminder ride every prompt, so a delivered thread
+    // that lost its instructions still carries operator mode.
+    assert.include(laterRun(true), "T3 Purge mode");
+    assert.include(laterRun(true), "<user_request>\nCheck the login screen.\n</user_request>");
+    assert.include(laterRun(true), "<t3_purge_reminder>");
 
     // A provider's own guidance reaches a conversation that already had the rest.
     const providerRun = (providerInstructionsDelivered: boolean) =>
@@ -80,7 +84,8 @@ describe("T3 device instructions", () => {
       });
     assert.include(providerRun(false), "Mark awaited shells.");
     assert.notInclude(providerRun(false), T3_CODE_ORCHESTRATION_INSTRUCTIONS.trim());
-    assert.equal(providerRun(true), "Check the login screen.");
+    assert.include(providerRun(true), "T3 Purge mode");
+    assert.include(providerRun(true), "<t3_purge_reminder>");
   });
 
   it("reach ACP agents again when device access changes mid-thread", () => {

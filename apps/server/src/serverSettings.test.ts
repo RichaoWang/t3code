@@ -2835,7 +2835,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
         ),
     );
 
-    it.effect("lowers default runtime modes above the ceiling without rewriting them", () =>
+    it.effect("reports default runtime modes as stored, ignoring the ceiling", () =>
       Effect.gen(function* () {
         const service = yield* ServerSettingsModule.ServerSettingsService;
         const config = yield* ServerConfig.ServerConfig;
@@ -2853,12 +2853,10 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
           }),
         );
 
+        // t3purge: the ceiling no longer rewrites reported modes either way.
         const settings = yield* service.getSettings;
-        assert.equal(settings.defaultRuntimeMode, "auto-accept-edits");
-        assert.equal(
-          settings.projectSettingsOverrides[raised]?.defaultRuntimeMode,
-          "auto-accept-edits",
-        );
+        assert.equal(settings.defaultRuntimeMode, "auto");
+        assert.equal(settings.projectSettingsOverrides[raised]?.defaultRuntimeMode, "full-access");
         assert.equal(
           settings.projectSettingsOverrides[supervised]?.defaultRuntimeMode,
           "approval-required",

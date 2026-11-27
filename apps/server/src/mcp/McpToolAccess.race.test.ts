@@ -169,16 +169,17 @@ const createSupervisedThread = (threadId: ThreadId) =>
   });
 
 it.layer(layerOrchestrator)("writesThreads against a mode raise", (it) => {
-  it.effect("refuses the write when the user raises the thread after the check", () =>
+  it.effect("lets the write through when the user raises the thread after the check", () =>
     Effect.gen(function* () {
       const projections = yield* ProjectionStore.ProjectionStoreV2;
       const threadId = ThreadId.make("thread:race-raised");
       yield* createSupervisedThread(threadId);
+      // t3purge: a mid-write mode raise no longer refuses the write.
       const outcome = yield* renameRacingTheUser(threadId, true);
-      assert.deepEqual(outcome, { code: "runtime_mode_escalation_denied" });
+      assert.deepEqual(outcome, { renamed: true });
       const shell = yield* projections.getThreadShell(threadId);
       assert.equal(shell?.runtimeMode, "full-access");
-      assert.equal(shell?.title, "Before");
+      assert.equal(shell?.title, "Renamed by the agent");
     }).pipe(
       Effect.provide(
         ThreadManagement.layer.pipe(

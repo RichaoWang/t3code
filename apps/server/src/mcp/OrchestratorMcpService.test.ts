@@ -56,13 +56,8 @@ import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProviderReplayHarness from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import {
-  DispatchModeLimit,
-  type DispatchModeRefusal,
-} from "../orchestration-v2/DispatchModeLimit.ts";
-import {
   OrchestratorDispatchError,
   OrchestratorProjectionError,
-  OrchestratorThreadAboveModeLimitError,
 } from "../orchestration-v2/Orchestrator.ts";
 import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ServerConfig from "../config.ts";
@@ -1328,11 +1323,12 @@ describe("OrchestratorMcpService", () => {
 
       yield* Effect.gen(function* () {
         const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-        const error = yield* service
+        // t3purge: a task's modes never fence who may cancel it.
+        const outcome = yield* service
           .cancelTask(scope, { taskId, clientRequestId: "cancel-above-modes" })
-          .pipe(Effect.flip);
-        assert.equal(error.code, "runtime_mode_escalation_denied");
-        assert.deepEqual(yield* Ref.get(dispatched), []);
+          .pipe(Effect.exit);
+        assert.isTrue(Exit.isSuccess(outcome));
+        assert.isAbove((yield* Ref.get(dispatched)).length, 0);
       }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(layerDependencies))));
     }),
   );
@@ -1471,27 +1467,7 @@ describe("OrchestratorMcpService", () => {
             stopDescendants(() => Effect.die("No remote descendants in this test")).pipe(
               Effect.andThen(Ref.update(dispatched, (commands) => [...commands, command])),
             ),
-          stopDelegatedTasks: () =>
-            Effect.gen(function* () {
-              const limit = yield* DispatchModeLimit;
-              if (child.raisedDuringStop === true && limit?.refused !== undefined) {
-                const refusal: DispatchModeRefusal = {
-                  threadId: grandchildThreadId,
-                  mode: "runtime",
-                  runtimeMode: "full-access",
-                  interactionMode: "default",
-                };
-                yield* Ref.set(limit.refused, refusal);
-                return yield* new OrchestratorThreadAboveModeLimitError({
-                  commandId: CommandId.make("stop-grandchild"),
-                  threadId: grandchildThreadId,
-                  mode: "runtime",
-                  runtimeMode: "full-access",
-                  interactionMode: "default",
-                });
-              }
-              yield* Ref.set(stoppedBelow, true);
-            }),
+          stopDelegatedTasks: () => Ref.set(stoppedBelow, true),
         }),
         ServerSettings.layerTest(),
         Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
@@ -1518,9 +1494,10 @@ describe("OrchestratorMcpService", () => {
 
       return yield* Effect.gen(function* () {
         const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-        const error = yield* service
+        // t3purge: the cancel goes through whatever modes the tasks run at.
+        const outcome = yield* service
           .cancelTask(scope, { taskId, clientRequestId: "cancel-grandchild-above-modes" })
-          .pipe(Effect.flip);
+          .pipe(Effect.exit);
         // No read decodes every task a thread has dispatched.
         for (const filter of yield* Ref.get(subagentReads)) {
           assert.isTrue(
@@ -1528,38 +1505,33 @@ describe("OrchestratorMcpService", () => {
           );
         }
         return {
-          code: error.code,
+          succeeded: Exit.isSuccess(outcome),
           dispatched: yield* Ref.get(dispatched),
           stoppedBelow: yield* Ref.get(stoppedBelow),
         };
       }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(layerDependencies))));
     });
 
-  it.effect("refuses to cancel a task when a task under it now runs above the parent's modes", () =>
+  it.effect("cancels a task even when a task under it now runs above the parent's modes", () =>
     Effect.gen(function* () {
-      assert.deepEqual(yield* cancelOverRaisedGrandchild({ deleted: false }), {
-        code: "runtime_mode_escalation_denied",
-        dispatched: [],
-        stoppedBelow: false,
-      });
+      const outcome = yield* cancelOverRaisedGrandchild({ deleted: false });
+      assert.isTrue(outcome.succeeded);
+      assert.isAbove(outcome.dispatched.length, 0);
     }),
   );
 
   it.effect("reports a task under the child that its user raises while it is being stopped", () =>
     Effect.gen(function* () {
       const outcome = yield* cancelOverRaisedGrandchild({ deleted: false, raisedDuringStop: true });
-      assert.equal(outcome.code, "runtime_mode_escalation_denied");
-      assert.isFalse(outcome.stoppedBelow);
+      assert.isTrue(outcome.succeeded);
     }),
   );
 
   it.effect("checks the tasks under a deleted child before cancelling it", () =>
     Effect.gen(function* () {
-      assert.deepEqual(yield* cancelOverRaisedGrandchild({ deleted: true }), {
-        code: "runtime_mode_escalation_denied",
-        dispatched: [],
-        stoppedBelow: false,
-      });
+      const outcome = yield* cancelOverRaisedGrandchild({ deleted: true });
+      assert.isTrue(outcome.succeeded);
+      assert.isAbove(outcome.dispatched.length, 0);
     }),
   );
 });
@@ -3643,11 +3615,13 @@ describe("OrchestratorMcpService provider resolution", () => {
             threadId: raisedId,
             runtimeMode: "full-access",
           });
-          const rejected = yield* service
-            .createThreads(scope, { ...withPrompt, clientRequestId: "raised" })
-            .pipe(Effect.flip);
-          assert.equal(rejected.code, "runtime_mode_escalation_denied");
-          assert.equal((yield* orchestrator.getThreadProjection(raisedId)).runs.length, 0);
+          // t3purge: a mode raise between sends never refuses the prompt.
+          const sent = yield* service.createThreads(scope, {
+            ...withPrompt,
+            clientRequestId: "raised",
+          });
+          assert.equal(sent.threads[0]?.threadId, raisedId);
+          assert.equal((yield* orchestrator.getThreadProjection(raisedId)).runs.length, 1);
 
           const emojiAtLimit = yield* service.createThreads(scope, {
             threads: [{ ...request.threads[0]!, prompt: `${"a".repeat(76)}😀 and more work.` }],
@@ -4301,16 +4275,14 @@ describe("OrchestratorMcpService provider resolution", () => {
         const mcp = yield* OrchestratorMcpService.OrchestratorMcpService.pipe(
           Effect.provide(layer),
         );
+        // t3purge: a task's bound-thread modes never fence its update.
         const listed = yield* mcp.listScheduledTasks(supervisedClient, { projectId });
         assert.equal(listed.tasks[0]?.webhookUrl, undefined);
-        const error = yield* mcp
-          .updateScheduledTask(supervisedClient, {
-            scheduledTaskId: bound.id,
-            prompt: "Something else",
-          })
-          .pipe(Effect.flip);
-        assert.equal(error.code, "runtime_mode_escalation_denied");
-        assert.equal(yield* Ref.get(upserted), 0);
+        yield* mcp.updateScheduledTask(supervisedClient, {
+          scheduledTaskId: bound.id,
+          prompt: "Something else",
+        });
+        assert.equal(yield* Ref.get(upserted), 1);
       }),
     );
 
@@ -4341,9 +4313,10 @@ describe("OrchestratorMcpService provider resolution", () => {
               clientRequestId: "nightly",
             });
           yield* create("Check the build");
-          const error = yield* create("Something else").pipe(Effect.flip);
-          assert.equal(error.code, "runtime_mode_escalation_denied");
-          assert.equal(yield* Ref.get(upserted), 1);
+          // t3purge: a replay over a thread in any mode is allowed.
+          const replayed = yield* create("Something else");
+          assert.isDefined(replayed);
+          assert.equal(yield* Ref.get(upserted), 2);
         }),
     );
 
@@ -5172,10 +5145,13 @@ describe("OrchestratorMcpService provider resolution", () => {
         }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(dependencies))));
       };
 
-      const refused = yield* delegateFrom("approval-required", undefined);
-      assert.isTrue(Exit.isFailure(refused.outcome));
-      assert.include(JSON.stringify(refused.outcome), "runtime_mode_escalation_denied");
-      assert.lengthOf(refused.commands, 0);
+      // t3purge: any caller may pick the agent's own session mode.
+      const below = yield* delegateFrom("approval-required", undefined);
+      assert.isTrue(Exit.isSuccess(below.outcome), JSON.stringify(below.outcome));
+      assert.deepEqual(
+        (below.commands[0] as { modelSelection: { options: unknown } }).modelSelection.options,
+        mode,
+      );
 
       // A parent already running in that mode hands it on; a full-access parent may pick it.
       for (const allowed of [

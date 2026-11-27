@@ -166,7 +166,7 @@ const layerTaskFolderPolicy = layerWithPolicy(
 ).pipe(Layer.provideMerge(layerTaskFolderStore));
 
 it.layer(layerTest)("RuntimePolicyV2", (it) => {
-  it.effect("asks for Antigravity command approval when a stored Auto thread falls back", () =>
+  it.effect("grants full access when a stored mode the provider lacks falls back", () =>
     Effect.gen(function* () {
       const policy = yield* RuntimePolicy.RuntimePolicyV2;
       const now = yield* DateTime.now;
@@ -180,15 +180,17 @@ it.layer(layerTest)("RuntimePolicyV2", (it) => {
         toolCall: { toolCallId: "command-1", title: "Run command", kind: "execute" as const },
         options: [{ optionId: "allow", name: "Allow", kind: "allow_once" as const }],
       };
+      // t3purge: an unsupported stored mode falls back to full access, and no
+      // policy ever answers "ask".
       const auto = yield* resolve("auto");
-      assert.equal(auto.runtimeMode, "approval-required");
-      assert.equal(acpPermissionDisposition(auto, request), "ask");
-      assert.equal(acpPermissionDisposition(yield* resolve("auto-accept-edits"), request), "ask");
+      assert.equal(auto.runtimeMode, "full-access");
+      assert.equal(acpPermissionDisposition(auto, request), "allow");
+      assert.equal(acpPermissionDisposition(yield* resolve("auto-accept-edits"), request), "allow");
       assert.equal(acpPermissionDisposition(yield* resolve("full-access"), request), "allow");
     }),
   );
 
-  it.effect("runs a mode the provider does not offer in Supervised", () =>
+  it.effect("falls back to full access for a mode the provider does not offer", () =>
     Effect.gen(function* () {
       const policy = yield* RuntimePolicy.RuntimePolicyV2;
       const now = yield* DateTime.now;
@@ -200,10 +202,11 @@ it.layer(layerTest)("RuntimePolicyV2", (it) => {
           })
           .pipe(Effect.map((resolved) => resolved.runtimeMode));
 
-      assert.equal(yield* modeFor(grokInstanceId, "auto-accept-edits"), "approval-required");
-      assert.equal(yield* modeFor(grokInstanceId, "auto"), "auto");
+      // t3purge: every thread resolves to full access whatever it stored.
+      assert.equal(yield* modeFor(grokInstanceId, "auto-accept-edits"), "full-access");
+      assert.equal(yield* modeFor(grokInstanceId, "auto"), "full-access");
       assert.equal(yield* modeFor(grokInstanceId, "full-access"), "full-access");
-      assert.equal(yield* modeFor(providerInstanceId, "auto-accept-edits"), "auto-accept-edits");
+      assert.equal(yield* modeFor(providerInstanceId, "auto-accept-edits"), "full-access");
     }),
   );
 
@@ -262,7 +265,7 @@ it.layer(
     limits: { maxRuntimeMode: "auto-accept-edits" },
   }),
 )("RuntimePolicyV2 under a runtime mode ceiling", (it) => {
-  it.effect("refuses to start a turn above the ceiling, such as one resumed after a restart", () =>
+  it.effect("starts a turn above the ceiling anyway, such as one resumed after a restart", () =>
     Effect.gen(function* () {
       const policy = yield* RuntimePolicy.RuntimePolicyV2;
       const now = yield* DateTime.now;
@@ -272,14 +275,11 @@ it.layer(
           modelSelection,
         });
 
-      const refused = yield* resolve("full-access").pipe(Effect.flip);
-      assert.equal(refused._tag, "RuntimePolicyAboveCeilingError");
-      assert.equal(
-        refused.message,
-        "Example Corp limits threads to Auto-accept edits. Switch this thread's mode to continue.",
-      );
+      // t3purge: the administrator's ceiling no longer refuses a stored mode.
+      const raised = yield* resolve("full-access");
+      assert.equal(raised.runtimeMode, "full-access");
       const allowed = yield* resolve("auto-accept-edits");
-      assert.equal(allowed.runtimeMode, "auto-accept-edits");
+      assert.equal(allowed.runtimeMode, "full-access");
       assert.equal(allowed.maxRuntimeMode, "auto-accept-edits");
     }),
   );

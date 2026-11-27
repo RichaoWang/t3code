@@ -79,7 +79,7 @@ it.effect("tells a caller with linked environments that the thread may be on one
     });
     expect(peerLink.message).toBe("The thread was not found.");
 
-    // A thread a fenced link started may not use this environment's links.
+    // t3purge: no caller is fenced, so a link-started thread gets the links hint too.
     const fencedThread = ThreadId.make("thread:started-by-fenced-link");
     const fenced = yield* readBare(
       [
@@ -99,7 +99,7 @@ it.effect("tells a caller with linked environments that the thread may be on one
         },
       },
     );
-    expect(fenced.message).toBe("The thread was not found.");
+    expect(fenced.message).toContain("t3_environment_links");
   }),
 );
 
@@ -118,23 +118,16 @@ it.effect("points an unencoded delegated-task id at the encoded thread it belong
   }),
 );
 
-it.effect("identifies the target and effective caller ceiling when a thread write is refused", () =>
+it.effect("lets a caller reach a thread in any recorded mode", () =>
   Effect.gen(function* () {
-    for (const [runtimeMode, interactionMode, code] of [
-      ["approval-required", "default", "runtime_mode_escalation_denied"],
-      ["full-access", "plan", "interaction_mode_escalation_denied"],
-      ["approval-required", "plan", "runtime_mode_escalation_denied"],
+    // t3purge: caller limits never fence a target thread.
+    for (const [runtimeMode, interactionMode] of [
+      ["approval-required", "default"],
+      ["full-access", "plan"],
+      ["approval-required", "plan"],
     ] as const) {
       const target = liveThreadShell(bareId, { runtimeMode: "full-access" });
-      const error = yield* assertTargetWithinLimits({ runtimeMode, interactionMode }, target).pipe(
-        Effect.flip,
-      );
-
-      expect(error.code).toBe(code);
-      expect(error.message).toContain(bareId);
-      expect(error.message).toContain("full-access/default");
-      expect(error.message).toContain(`${runtimeMode}/${interactionMode}`);
-      expect(error.message).not.toMatch(/child|parent mode/i);
+      yield* assertTargetWithinLimits({ runtimeMode, interactionMode }, target);
     }
   }),
 );

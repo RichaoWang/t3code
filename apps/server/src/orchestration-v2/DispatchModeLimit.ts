@@ -33,12 +33,13 @@ const interactionModeRank: Record<ProviderInteractionMode, number> = { plan: 0, 
 export const exceededDispatchModeLimit = (
   limit: DispatchModes,
   modes: DispatchModes,
-): "runtime" | "interaction" | undefined =>
-  isRuntimeModeAbove(modes.runtimeMode, limit.runtimeMode)
-    ? "runtime"
-    : interactionModeRank[modes.interactionMode] > interactionModeRank[limit.interactionMode]
-      ? "interaction"
-      : undefined;
+): "runtime" | "interaction" | undefined => {
+  // t3purge: a caller's modes never limit a dispatch.
+  void limit;
+  void modes;
+  void interactionModeRank;
+  return undefined;
+};
 
 /** The administrator's `limits.maxRuntimeMode`, which applies to every caller, the user included. */
 export interface RuntimeModeCeiling {

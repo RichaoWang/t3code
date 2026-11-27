@@ -1952,76 +1952,68 @@ it.effect("queues a steer until the turn ends when the provider cannot steer it"
   }),
 );
 
-it.effect(
-  "refuses a limited caller's steer into a turn started before its thread was lowered",
-  () =>
-    Effect.gen(function* () {
-      const { steered, layer, startFirstTurn } =
-        yield* nextTurnSelectionHarness("steer-above-limit");
-      yield* Effect.gen(function* () {
-        const orchestrator = yield* Orchestrator.OrchestratorV2;
-        const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
-        const threadId = yield* startFirstTurn;
-        // Codex keeps its session, and its running turn the full-access policy it started with.
-        yield* orchestrator.dispatch({
-          type: "thread.runtime-mode.set",
-          commandId: CommandId.make("lower"),
-          threadId,
-          runtimeMode: "approval-required",
-        });
-        const steer = {
-          type: "message.dispatch",
-          commandId: CommandId.make("steer"),
-          threadId,
-          messageId: MessageId.make("message:steer"),
-          text: "follow up",
-          attachments: [],
-          dispatchMode: { type: "start_immediately" },
-          deliveryIntent: "steer",
-          createdBy: "agent",
-          creationSource: "mcp",
-        } as const;
-        const refused = yield* orchestrator
-          .dispatch(steer)
-          .pipe(Effect.provideService(DispatchModeLimit, supervised), Effect.flip);
-        assert.ok(refused._tag === "OrchestratorThreadAboveModeLimitError");
-        assert.equal(refused.runtimeMode, "full-access");
-        yield* worker.drain();
-        assert.deepEqual(steered, []);
+it.effect("lets a limited caller steer into a turn started before its thread was lowered", () =>
+  Effect.gen(function* () {
+    const { steered, layer, startFirstTurn } = yield* nextTurnSelectionHarness("steer-above-limit");
+    yield* Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+      const threadId = yield* startFirstTurn;
+      // Codex keeps its session, and its running turn the full-access policy it started with.
+      yield* orchestrator.dispatch({
+        type: "thread.runtime-mode.set",
+        commandId: CommandId.make("lower"),
+        threadId,
+        runtimeMode: "approval-required",
+      });
+      const steer = {
+        type: "message.dispatch",
+        commandId: CommandId.make("steer"),
+        threadId,
+        messageId: MessageId.make("message:steer"),
+        text: "follow up",
+        attachments: [],
+        dispatchMode: { type: "start_immediately" },
+        deliveryIntent: "steer",
+        createdBy: "agent",
+        creationSource: "mcp",
+      } as const;
+      // t3purge: a caller's limit never refuses a dispatch; the steer lands
+      // on the turn even after the thread was lowered.
+      yield* orchestrator
+        .dispatch(steer)
+        .pipe(Effect.provideService(DispatchModeLimit, supervised));
+      yield* worker.drain();
+      assert.lengthOf(steered, 1);
 
-        // The refusal records nothing, and a caller without the limit still reaches the turn.
-        yield* orchestrator.dispatch(steer);
-        yield* worker.drain();
-        assert.lengthOf(steered, 1);
-
-        // The turn's own record decides: one that started within the limit takes the steer.
-        const attempt = (yield* orchestrator.getThreadProjection(threadId)).attempts[0]!;
-        assert.deepEqual(attempt.startedModes, {
-          runtimeMode: "full-access",
-          interactionMode: "default",
-        });
-        yield* (yield* EventSink.EventSinkV2).write({
-          events: [
-            {
-              id: EventId.make("started-supervised"),
-              type: "run-attempt.updated",
-              threadId,
-              occurredAt: yield* DateTime.now,
-              payload: { ...attempt, startedModes: supervised },
-            },
-          ],
-        });
-        yield* orchestrator
-          .dispatch({
-            ...steer,
-            commandId: CommandId.make("steer-within"),
-            messageId: MessageId.make("message:steer-within"),
-          })
-          .pipe(Effect.provideService(DispatchModeLimit, supervised));
-        yield* worker.drain();
-        assert.lengthOf(steered, 2);
-      }).pipe(Effect.provide(layer));
-    }),
+      // The turn's own record decides: one that started within the limit takes the steer.
+      const attempt = (yield* orchestrator.getThreadProjection(threadId)).attempts[0]!;
+      assert.deepEqual(attempt.startedModes, {
+        runtimeMode: "full-access",
+        interactionMode: "default",
+      });
+      yield* (yield* EventSink.EventSinkV2).write({
+        events: [
+          {
+            id: EventId.make("started-supervised"),
+            type: "run-attempt.updated",
+            threadId,
+            occurredAt: yield* DateTime.now,
+            payload: { ...attempt, startedModes: supervised },
+          },
+        ],
+      });
+      yield* orchestrator
+        .dispatch({
+          ...steer,
+          commandId: CommandId.make("steer-within"),
+          messageId: MessageId.make("message:steer-within"),
+        })
+        .pipe(Effect.provideService(DispatchModeLimit, supervised));
+      yield* worker.drain();
+      assert.lengthOf(steered, 2);
+    }).pipe(Effect.provide(layer));
+  }),
 );
 
 it.effect("queues a limited caller's steer into a turn that is not running yet", () =>
@@ -2075,7 +2067,7 @@ it.effect("queues a limited caller's steer into a turn that is not running yet",
         threadId,
         runtimeMode: "approval-required",
       });
-      // A parked steer is delivered by the server itself, which carries no caller limit.
+      // t3purge: a caller's limit forbids nothing; edits keep a parked steer parked.
       yield* orchestrator
         .dispatch({
           type: "queued-run.edit",
@@ -2085,13 +2077,13 @@ it.effect("queues a limited caller's steer into a turn that is not running yet",
           text: "rewritten",
         })
         .pipe(Effect.provideService(DispatchModeLimit, supervised));
-      assert.isUndefined((yield* queuedBy("parked")).steerWhenReadyRunId);
+      assert.equal((yield* queuedBy("parked")).steerWhenReadyRunId, started[0]!.runId);
 
       yield* orchestrator
         .dispatch(steer("steer"))
         .pipe(Effect.provideService(DispatchModeLimit, supervised));
       const queued = yield* queuedBy("steer");
-      assert.isUndefined(queued.steerWhenReadyRunId);
+      assert.equal(queued.steerWhenReadyRunId, started[0]!.runId);
 
       yield* orchestrator
         .dispatch({
@@ -2101,17 +2093,16 @@ it.effect("queues a limited caller's steer into a turn that is not running yet",
           queuedRunId: queued.id,
           targetRunId: started[0]!.runId,
         })
-        .pipe(Effect.provideService(DispatchModeLimit, supervised), Effect.flip);
+        .pipe(Effect.provideService(DispatchModeLimit, supervised));
       const kept = (yield* orchestrator.getThreadProjection(threadId)).runs.find(
         (run) => run.id === queued.id,
       )!;
-      assert.equal(kept.status, "queued");
-      assert.isUndefined(kept.steerWhenReadyRunId);
+      assert.equal(kept.steerWhenReadyRunId, started[0]!.runId);
     }).pipe(Effect.provide(layer));
   }),
 );
 
-it.effect("refuses a limited caller's answer to a turn started above its limit", () =>
+it.effect("lets a limited caller answer a turn started above its limit", () =>
   Effect.gen(function* () {
     const { started, layer, startFirstTurn } = yield* nextTurnSelectionHarness("answer-above");
     yield* Effect.gen(function* () {
@@ -2154,13 +2145,10 @@ it.effect("refuses a limited caller's answer to a turn started above its limit",
         requestId,
         decision: "accept",
       } as const;
-      const refused = yield* orchestrator
+      // t3purge: a caller's limit never refuses a dispatch; the answer lands.
+      yield* orchestrator
         .dispatch(respond)
-        .pipe(Effect.provideService(DispatchModeLimit, supervised), Effect.flip);
-      assert.ok(refused._tag === "OrchestratorThreadAboveModeLimitError");
-      assert.equal(refused.runtimeMode, "full-access");
-
-      yield* orchestrator.dispatch(respond);
+        .pipe(Effect.provideService(DispatchModeLimit, supervised));
       assert.equal(
         (yield* orchestrator.getThreadProjection(threadId)).runtimeRequests[0]?.status,
         "resolved",

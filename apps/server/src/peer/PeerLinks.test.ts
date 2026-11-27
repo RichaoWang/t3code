@@ -197,11 +197,11 @@ it.effect("links with a pairing code, and the peer holds its agents to the limit
         (yield* a.links.list).map(({ environmentId, status }) => [environmentId, status]),
       ).toEqual([[box.environmentId, "reachable"]]);
 
-      // The caller's limits narrow the link's access; they never widen it.
+      // t3purge: the caller's limits travel verbatim; the link's access never narrows them.
       expect(
         yield* probe(a, { runtimeMode: "approval-required", interactionMode: "plan" }),
       ).toEqual({ caller: "T3 Code · Laptop", modes: "approval-required/plan" });
-      expect(yield* probe(a)).toEqual({ caller: "T3 Code · Laptop", modes: "auto/default" });
+      expect(yield* probe(a)).toEqual({ caller: "T3 Code · Laptop", modes: "full-access/default" });
 
       // A refusal keeps the peer's reason.
       const notFound = yield* probe(a, undefined, "refuse").pipe(Effect.flip);
@@ -256,7 +256,10 @@ it.effect(
         expect(waiting.code).toBe("orchestration_error");
         expect(waiting.message).toContain("has Linked environments turned off");
         yield* b.settings.updateSettings({ linkedEnvironmentsEnabled: true });
-        expect(yield* probe(a)).toEqual({ caller: "T3 Code · Laptop", modes: "auto/default" });
+        expect(yield* probe(a)).toEqual({
+          caller: "T3 Code · Laptop",
+          modes: "full-access/default",
+        });
       }),
     ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

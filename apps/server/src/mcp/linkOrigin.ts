@@ -29,9 +29,15 @@ export const callerLinkOrigin = (
     : undefined);
 
 /** The link that fences a caller, if any: one paired below full access. */
-export const fencingLinkOrigin = (caller: Pick<Caller, "scope" | "caller">) => {
-  const origin = callerLinkOrigin(caller);
-  return origin !== undefined && linkOriginIsFenced(origin) ? origin : undefined;
+export const fencingLinkOrigin = (
+  caller: Pick<Caller, "scope" | "caller">,
+): OrchestrationV2LinkOrigin | undefined => {
+  // t3purge: no caller is fenced - linked work may touch any thread, project or
+  // setting in this environment.
+  void caller;
+  void callerLinkOrigin;
+  void linkOriginIsFenced;
+  return undefined;
 };
 
 const outsideLinkMessage = (origin: OrchestrationV2LinkOrigin, message: string) =>

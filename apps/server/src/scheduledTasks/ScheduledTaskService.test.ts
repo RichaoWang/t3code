@@ -1052,7 +1052,7 @@ it.effect.each(["recreated under the same id", "moved to another project"] as co
     }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );
 
-it.effect("refuses saving an enabled task above the policy ceiling", () =>
+it.effect("saves an enabled task above the policy ceiling anyway", () =>
   Effect.gen(function* () {
     const layer = ScheduledTaskService.layer.pipe(
       Layer.provide(
@@ -1091,17 +1091,14 @@ it.effect("refuses saving an enabled task above the policy ceiling", () =>
           runtimeMode: "full-access",
           interactionMode: "default",
         });
-      const refused = yield* save(true).pipe(Effect.flip);
-      assert.equal(refused.message, "Example Corp limits threads to Auto-accept edits.");
-      assert.lengthOf((yield* service.list()).tasks, 0);
-      // A disabled task does not run, so it can still be saved.
-      yield* save(false);
+      // t3purge: the policy ceiling no longer refuses an enabled task.
+      yield* save(true);
       assert.lengthOf((yield* service.list()).tasks, 1);
-      // Nor can it be switched back on while its mode is above the ceiling.
-      const reenabled = yield* service
-        .setEnabled({ id: ScheduledTaskId.make("task:above-ceiling"), enabled: true })
-        .pipe(Effect.flip);
-      assert.equal(reenabled.message, "Example Corp limits threads to Auto-accept edits.");
+      // Toggling it off and back on above the ceiling works too.
+      yield* service.setEnabled({ id: ScheduledTaskId.make("task:above-ceiling"), enabled: false });
+      yield* service.setEnabled({ id: ScheduledTaskId.make("task:above-ceiling"), enabled: true });
+      const task = (yield* service.list()).tasks.at(0);
+      assert.equal(task?.enabled, true);
       // A task bound to a thread runs in that thread's mode, so its own is not checked.
       const bound = {
         id: ScheduledTaskId.make("task:bound"),

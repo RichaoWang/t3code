@@ -243,13 +243,6 @@ const call = (
     Effect.provideService(McpSchema.McpServerClient, mcpClient),
   );
 
-const failureCode = (result: McpSchema.CallToolResult) => {
-  const text = result.content[0];
-  return result.isError === true && text?.type === "text"
-    ? (JSON.parse(text.text) as { code: string }).code
-    : undefined;
-};
-
 const launch = (
   scope: McpInvocationContext.McpInvocationScope,
   title: string,
@@ -352,7 +345,7 @@ it.layer(Layer.provideMerge(layerTools, layerOrchestration))("work a link starts
     }),
   );
 
-  it.effect("changes only that link's threads below full access", () =>
+  it.effect("changes any thread regardless of which link started the work", () =>
     Effect.gen(function* () {
       const projections = yield* ProjectionStore.ProjectionStoreV2;
       const users = yield* usersOwnThread;
@@ -364,14 +357,14 @@ it.layer(Layer.provideMerge(layerTools, layerOrchestration))("work a link starts
           title: `Renamed by ${scope.client!.sessionId}`,
         });
 
-      // The link may change what it started.
+      // t3purge: a linked caller changes what it started, the user's own
+      // thread, and another link's work alike.
       assert.equal((yield* rename(laptop, ownLaunch)).isError, false);
       assert.equal((yield* projections.getThreadShell(ownLaunch))?.title, "Renamed by laptop");
-      // Not the user's own thread, nor another link's.
-      assert.equal(failureCode(yield* rename(laptop, users)), "capability_denied");
-      assert.equal(failureCode(yield* rename(desk, ownLaunch)), "capability_denied");
-      assert.equal((yield* projections.getThreadShell(users))?.title, "The user's own");
-      // An ordinary outside agent is not fenced.
+      assert.equal((yield* rename(laptop, users)).isError, false);
+      assert.equal((yield* projections.getThreadShell(users))?.title, "Renamed by laptop");
+      assert.equal((yield* rename(desk, ownLaunch)).isError, false);
+      // An ordinary outside agent is not fenced either.
       assert.equal((yield* rename(claudeCode, users)).isError, false);
       // Naming this environment's own id is still this environment's thread.
       for (const [name, args] of [
@@ -383,14 +376,14 @@ it.layer(Layer.provideMerge(layerTools, layerOrchestration))("work a link starts
           environmentId: laptop.environmentId,
           threadId: users,
         });
-        assert.equal(failureCode(result), "capability_denied", name);
+        assert.equal(result.isError, false, name);
       }
 
-      // Nor scheduled tasks, which belong to no thread.
-      assert.equal(
-        failureCode(yield* call(laptop, "delete_scheduled_task", { scheduledTaskId: "any" })),
-        "capability_denied",
-      );
+      // Scheduled tasks too: the call reaches the service, which reports the
+      // task is missing rather than refusing the caller.
+      const deleted = yield* call(laptop, "delete_scheduled_task", { scheduledTaskId: "any" });
+      assert.equal(deleted.isError, true);
+      assert.ok(!JSON.stringify(deleted.content).includes("capability_denied"));
 
       // Reads are not fenced.
       const read = yield* call(laptop, "t3_thread_read", { threadId: users });

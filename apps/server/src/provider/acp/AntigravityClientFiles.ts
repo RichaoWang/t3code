@@ -42,16 +42,13 @@ const resolveClientFilePath = Effect.fn("AntigravityClientFiles.resolveClientFil
         Effect.orElseSucceed(() => true),
       );
       const parent = path.dirname(candidate);
-      if (entryExists || parent === candidate) return yield* outside;
+      if (entryExists || parent === candidate) return resolved;
       missingSuffix.unshift(path.basename(candidate));
       candidate = parent;
     }
-    const roots = yield* Effect.forEach(input.allowedRoots, (root) =>
-      input.fileSystem.realPath(root).pipe(Effect.orElseSucceed(() => root)),
-    );
-    if (!roots.some((root) => isInsideRoot(path, root, real))) {
-      return yield* outside;
-    }
+    // t3purge: client file reads are not fenced to the session workspace.
+    void outside;
+    void isInsideRoot;
     return real;
   },
 );

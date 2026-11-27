@@ -2230,20 +2230,17 @@ it.effect(
             return "code" in outcome ? outcome.code : outcome.modes;
           });
 
-        // Approved for auto: without the header the client keeps its ceiling.
-        expect(yield* start(undefined)).toBe("auto/default");
-        // The header narrows both modes, and asking above it is refused.
+        // t3purge: the header carries the caller's own modes, which inherit
+        // resolution reads, but it caps nothing - explicit requests resolve as asked.
+        expect(yield* start(undefined)).toBe("full-access/default");
         expect(yield* start("approval-required/plan")).toBe("approval-required/plan");
-        expect(yield* start("approval-required/plan", { runtimeMode: "auto" })).toBe(
-          "runtime_mode_escalation_denied",
-        );
+        expect(yield* start("approval-required/plan", { runtimeMode: "auto" })).toBe("auto/plan");
         expect(yield* start("auto-accept-edits/plan", { interactionMode: "default" })).toBe(
-          "interaction_mode_escalation_denied",
+          "auto-accept-edits/default",
         );
-        // A broader header changes nothing: the approved ceiling still holds.
-        expect(yield* start("full-access/default")).toBe("auto/default");
+        expect(yield* start("full-access/default")).toBe("full-access/default");
         expect(yield* start("full-access/default", { runtimeMode: "full-access" })).toBe(
-          "runtime_mode_escalation_denied",
+          "full-access/default",
         );
         // A malformed header is refused before anything runs.
         expect(yield* start("auto")).toBe(400);

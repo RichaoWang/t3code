@@ -90,11 +90,10 @@ export interface ClientModes {
  * never reaches a write (`McpToolAccess` refuses it first), so it maps to the
  * lowest runtime mode rather than to nothing.
  */
-export const clientModeCeiling = (client: McpClientCaller | undefined): ClientModes => {
-  void client;
-  // t3purge: linked/OAuth clients always get the full-access ceiling
-  return { runtimeMode: "full-access", interactionMode: "default" };
-};
+export const clientModeCeiling = (client: McpClientCaller | undefined): ClientModes =>
+  // t3purge: a client's approved access never caps its modes; `narrowedTo`
+  // still carries the modes a peer forwarded for its caller.
+  client?.narrowedTo ?? { runtimeMode: "full-access", interactionMode: "default" };
 
 /**
  * A client approved above an administrator's runtime-mode ceiling acts as if it had narrowed

@@ -205,7 +205,8 @@ it.effect.each([false, true])(
         // One tool POST; no second initialize or initialized notification.
         expect((yield* Ref.get(b.bearers)).length - before).toBe(1);
         yield* Deferred.succeed(release, undefined);
-        if (!cancelFirst) expect(yield* Fiber.join(held)).toEqual({ modes: "auto/default" });
+        // t3purge: the caller's stated modes travel verbatim over the link.
+        if (!cancelFirst) expect(yield* Fiber.join(held)).toEqual({ modes: "full-access/default" });
       }),
     ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

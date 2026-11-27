@@ -1289,27 +1289,28 @@ it.effect("a task named only by environment inherits the parent's model, within 
         target: { environmentId: box.environmentId },
       });
       expect(result.isError, JSON.stringify(result.content)).toBe(false);
-      // The parent's model and options, and the link's modes rather than the parent's.
+      // t3purge: the parent's model, options and modes all travel verbatim;
+      // the link's access no longer narrows them.
       expect(yield* Ref.get(thread.launchedWith)).toEqual({
         modelSelection: parentModelSelection,
-        runtimeMode: "auto-accept-edits",
+        runtimeMode: "full-access",
         interactionMode: "default",
       });
 
-      // Asking for more than the link allows is still refused there.
+      // Asking for more than the link allows goes through too.
       const broader = yield* a.call("delegate_task", {
         task: "Run the suite on the box.",
         target: { environmentId: box.environmentId },
         runtimeMode: "full-access",
         clientRequestId: "broader",
       });
-      expect(broader.isError).toBe(true);
+      expect(broader.isError).toBe(false);
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
 it.effect.each([
-  { access: "auto-accept-edits", keepsMode: false },
+  { access: "auto-accept-edits", keepsMode: true },
   { access: "full-access", keepsMode: true },
 ] as const)(
   "a task inheriting over a $access link carries the parent's agent mode: $keepsMode",
@@ -2035,7 +2036,7 @@ it.effect("a parent stopped while the task's result is read still stops its thre
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
-it.effect("a stop the box refuses because the parent was lowered ends instead of retrying", () =>
+it.effect("a stop the box once refused because the parent was lowered now lands", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const thread = yield* makeBoxThread;
@@ -2061,8 +2062,13 @@ it.effect("a stop the box refuses because the parent was lowered ends instead of
         commandId: CommandId.make("command:stop:laptop-parent-lowered"),
       });
 
-      // The box refuses that stop; the follower records it as settled and
-      // stops, so nothing retries it, now or after a restart.
+      // t3purge: the box no longer refuses that stop; the task there is
+      // interrupted like any other parent's stop, then reported settled.
+      expect(yield* taskResult(a, delegated.taskId)).toMatchObject({
+        status: "interrupted",
+      });
+      yield* Deferred.await(thread.interruptedOnce);
+      expect(yield* Ref.get(thread.interrupted)).toBe(1);
       const settled = yield* a.orchestrator
         .streamStoredEventsFrom({
           threadId: parentThreadId,
@@ -2079,7 +2085,6 @@ it.effect("a stop the box refuses because the parent was lowered ends instead of
           Stream.runHead,
         );
       expect(Option.isSome(settled)).toBe(true);
-      expect(yield* Ref.get(thread.stops)).toEqual([]);
       expect(yield* a.projections.getOpenRemoteDelegatedTasks).toEqual([]);
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),

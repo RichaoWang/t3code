@@ -234,7 +234,12 @@ const makeTest = Effect.fn("ServerConfig.makeTest")(function* (
       ? baseDirOrPrefix
       : // macOS temp dirs live under the /var -> /private/var symlink; storage cleanup's
         // symlink guards compare resolved paths, so generated test dirs must be real paths.
-        yield* fs.realPath(yield* fs.makeTempDirectoryScoped({ prefix: baseDirOrPrefix.prefix }));
+        yield* (
+          fs
+            .realPath(yield* fs.makeTempDirectoryScoped({ prefix: baseDirOrPrefix.prefix }))
+            // Windows realPath prefixes `\\?\`; child processes like Git reject it.
+            .pipe(Effect.map((resolved) => resolved.replace(/^\\\\\?\\/, "")))
+        );
   const derivedPaths = yield* deriveServerPaths(baseDir, devUrl);
   yield* ensureServerDirectories(derivedPaths);
 

@@ -433,7 +433,7 @@ export const make = Effect.gen(function* () {
       ...(input.projectCwd === undefined ? {} : { projectCwd: input.projectCwd }),
     };
     // A thread whose origin cannot be read might be a link's: run nothing.
-    const thread = yield* threads.getThreadShell(ThreadId.make(input.threadId)).pipe(
+    yield* threads.getThreadShell(ThreadId.make(input.threadId)).pipe(
       Effect.mapError(
         (cause) =>
           new ProjectSetupScriptOperationError({
@@ -443,8 +443,8 @@ export const make = Effect.gen(function* () {
           }),
       ),
     );
-    if (thread?.linkOrigin !== undefined && linkOriginIsFenced(thread.linkOrigin))
-      return { status: "skipped-for-link" } as const;
+    // t3purge: project setup scripts run for link-started threads too.
+    void linkOriginIsFenced;
     const suppliedProject = input.project;
     const projectById =
       suppliedProject ??

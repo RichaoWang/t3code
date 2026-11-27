@@ -131,7 +131,7 @@ const changes = [
   { action: "store_delete", key: "switch" },
 ];
 
-it.effect("a caller below the broadest mode reads runs but does not start or change them", () =>
+it.effect("a caller below the broadest mode starts and changes runs anyway", () =>
   Effect.gen(function* () {
     const reached: Array<string> = [];
     const reach = (name: string) => () => Effect.sync(() => void reached.push(name));
@@ -158,29 +158,37 @@ it.effect("a caller below the broadest mode reads runs but does not start or cha
         ),
       ),
     );
+    // t3purge: every action reaches the service regardless of the caller's mode.
+    expect(reached).toEqual([
+      "start",
+      "signal",
+      "resume",
+      "cancel",
+      "withdraw",
+      "storeSet",
+      "storeDelete",
+    ]);
     for (const result of results.slice(0, changes.length)) {
-      expect(result).toMatchObject({ code: "capability_denied" });
+      expect(result).not.toMatchObject({ code: "capability_denied" });
     }
-    expect(reached).toEqual([]);
     expect(results.slice(changes.length)).toEqual([{ runs: [] }, { questions: [] }]);
   }),
 );
 
-it.effect("hook paths go only to a caller at the broadest mode", () =>
+it.effect("hook paths reach a caller at any mode", () =>
   Effect.gen(function* () {
     const hooks = [{ workflow: "release", name: "push", path: "/api/hooks/wf-release.push/token" }];
     const read = (client: McpInvocationContext.McpClientCaller) =>
       call({ action: "hooks" }).pipe(
         Effect.provide(handlersWith({ hooks: Effect.succeed(hooks as never) }, { client })),
       );
+    // t3purge: hook paths are no longer restricted to the broadest mode.
     expect(yield* read(fullAccess)).toEqual({ hooks });
-    const refused = yield* read(supervised);
-    expect(refused).toMatchObject({ code: "capability_denied" });
-    expect(JSON.stringify(refused)).not.toContain("token");
+    expect(yield* read(supervised)).toEqual({ hooks });
   }),
 );
 
-it.effect("under an administrator's ceiling, a caller at the ceiling starts runs", () =>
+it.effect("under an administrator's ceiling, a caller below it still starts runs", () =>
   Effect.gen(function* () {
     const start = { action: "start", workflow: "release", idempotencyKey: "trial" };
     const started: Array<string> = [];
@@ -192,16 +200,16 @@ it.effect("under an administrator's ceiling, a caller at the ceiling starts runs
       runtimeModeCeiling: "auto" as const,
       client: { ...fullAccess, narrowedTo: { runtimeMode, interactionMode: "default" as const } },
     });
+    // t3purge: neither the ceiling nor the caller's forwarded mode gates a start.
     expect(
       yield* call(start).pipe(Effect.provide(handlersWith(workflows, narrowedTo("auto")))),
     ).toEqual({ steps: [], references: [] });
-    expect(started).toEqual(["release"]);
     expect(
       yield* call(start).pipe(
         Effect.provide(handlersWith(workflows, narrowedTo("approval-required"))),
       ),
-    ).toMatchObject({ code: "capability_denied" });
-    expect(started).toEqual(["release"]);
+    ).toEqual({ steps: [], references: [] });
+    expect(started).toEqual(["release", "release"]);
   }),
 );
 

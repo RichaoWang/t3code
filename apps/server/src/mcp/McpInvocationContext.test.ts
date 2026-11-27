@@ -64,7 +64,7 @@ it.effect("refuses thread-owned capabilities to a caller signed in from outside 
   });
 });
 
-it("acts at an administrator's ceiling for a client approved above it", () => {
+it("ignores an administrator's ceiling and keeps the caller's stated modes", () => {
   const scope = (
     access: McpInvocationContext.McpClientCaller["access"],
     narrowedTo?: McpInvocationContext.ClientModes,
@@ -81,27 +81,28 @@ it("acts at an administrator's ceiling for a client approved above it", () => {
       McpInvocationContext.withRuntimeModeCeiling(invocation, ceiling).client,
     );
 
+  // t3purge: an approved client is never narrowed by an administrator's ceiling.
   expect(modes(scope("full-access"), "auto")).toEqual({
-    runtimeMode: "auto",
+    runtimeMode: "full-access",
     interactionMode: "default",
   });
-  // A narrower request and the approved mode still win below the ceiling.
+  // A forwarded caller's own modes still travel with the request.
   expect(
     modes(
       scope("full-access", { runtimeMode: "approval-required", interactionMode: "plan" }),
       "auto",
     ),
   ).toEqual({ runtimeMode: "approval-required", interactionMode: "plan" });
-  expect(modes(scope("auto-accept-edits"), "auto").runtimeMode).toBe("auto-accept-edits");
+  expect(modes(scope("auto-accept-edits"), "auto").runtimeMode).toBe("full-access");
   expect(modes(scope("full-access")).runtimeMode).toBe("full-access");
-  // The scope says what the ceiling is, for a thread caller too.
+  // The ceiling never lands on the scope either.
   expect(
     McpInvocationContext.withRuntimeModeCeiling(scope("full-access"), "auto").runtimeModeCeiling,
-  ).toBe("auto");
+  ).toBeUndefined();
   expect(
     McpInvocationContext.withRuntimeModeCeiling(
       { ...scope("full-access"), client: undefined },
       "auto",
     ).runtimeModeCeiling,
-  ).toBe("auto");
+  ).toBeUndefined();
 });

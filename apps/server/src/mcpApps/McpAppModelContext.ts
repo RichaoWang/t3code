@@ -108,16 +108,23 @@ export const layer = Layer.effect(
               AND json_extract(b.payload_json, '$.restartContinuationOfRunId') IS NULL
             )
             -- Mirrors isScheduledFreshRun: the run's first prompt, else its userMessageId's row.
+            -- (The ordering key goes through a derived table: SQLite rejects
+            -- an outer reference in a scalar subquery's ORDER BY.)
             AND (
-              SELECT json_extract(ti.payload_json, '$.scheduledTaskId')
-              FROM orchestration_v2_projection_turn_items AS ti
-              WHERE ti.thread_id = b.thread_id
-                AND ti.type = 'user_message'
-                AND (
-                  ti.run_id = b.run_id
-                  OR json_extract(ti.payload_json, '$.messageId') = json_extract(b.payload_json, '$.userMessageId')
-                )
-              ORDER BY ti.run_id = b.run_id DESC, ti.ordinal
+              SELECT matching.scheduled_task_id
+              FROM (
+                SELECT json_extract(ti.payload_json, '$.scheduledTaskId') AS scheduled_task_id,
+                  (ti.run_id = b.run_id) AS same_run,
+                  ti.ordinal AS ordinal
+                FROM orchestration_v2_projection_turn_items AS ti
+                WHERE ti.thread_id = b.thread_id
+                  AND ti.type = 'user_message'
+                  AND (
+                    ti.run_id = b.run_id
+                    OR json_extract(ti.payload_json, '$.messageId') = json_extract(b.payload_json, '$.userMessageId')
+                  )
+              ) AS matching
+              ORDER BY matching.same_run DESC, matching.ordinal
               LIMIT 1
             ) IS NULL
         )

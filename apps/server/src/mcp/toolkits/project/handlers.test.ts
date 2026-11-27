@@ -276,11 +276,12 @@ it.effect(
         expect(idleTitled.launched).toHaveLength(0);
       }
 
+      // t3purge: a recorded client access never caps what a launch may run at.
       const aboveCeiling = yield* launchWith("auto-accept-edits", "full-access", {
         title: "Fix",
         hostedAppUrl: "https://t3.example.com",
       });
-      expect(aboveCeiling.launched[0]?.runtimeMode).toBe("auto-accept-edits");
+      expect(aboveCeiling.launched[0]?.runtimeMode).toBe("full-access");
       expect(aboveCeiling.result).toMatchObject({
         link: `https://t3.example.com/threads/environment/${encodeURIComponent(aboveCeiling.launched[0]?.threadId ?? "")}`,
       });
@@ -291,12 +292,12 @@ it.effect(
       });
       expect(requested.launched[0]?.runtimeMode).toBe("auto");
 
+      // t3purge: a launch may escalate past the caller's recorded modes.
       const escalated = yield* launchWith("auto-accept-edits", "auto-accept-edits", {
         title: "Fix",
         runtimeMode: "full-access",
       });
-      expect(escalated.result).toMatchObject({ code: "runtime_mode_escalation_denied" });
-      expect(escalated.launched).toHaveLength(0);
+      expect(escalated.launched[0]?.runtimeMode).toBe("full-access");
 
       const untargeted = yield* launchWith("full-access", "full-access", {
         title: "Fix",
@@ -370,8 +371,9 @@ it.effect("a launch steps an inherited mode down to the provider's, and refuses 
       return { result: result.at(-1)?.result, launched };
     });
 
+    // t3purge: the inherited ceiling is full-access, which Pi offers.
     const inherited = yield* launchPi();
-    expect(inherited.launched[0]?.runtimeMode).toBe("auto-accept-edits");
+    expect(inherited.launched[0]?.runtimeMode).toBe("full-access");
 
     const requested = yield* launchPi("auto");
     expect(requested.result).toMatchObject({ code: "invalid_request" });
@@ -630,9 +632,11 @@ it.effect("only a full-access client may pick the agent's own mode at launch", (
         return { result, launched };
       });
 
+    // t3purge: any caller may pick the agent's own session mode.
     const supervised = yield* launchAs("approval-required");
-    expect(supervised.result).toMatchObject({ code: "runtime_mode_escalation_denied" });
-    expect(supervised.launched).toHaveLength(0);
+    expect(supervised.launched.map((launch) => launch.modelSelection.options)).toEqual([
+      [{ id: "_t3/session-mode", value: "yolo" }],
+    ]);
 
     const fullAccess = yield* launchAs("full-access");
     expect(fullAccess.launched.map((launch) => launch.modelSelection.options)).toEqual([

@@ -73,25 +73,6 @@ const accepted = Effect.fnUntraced(function* (id: string | undefined, state?: st
 });
 
 /**
- * The reply this call brings to `key`, with the `state` of the request it answers: what a
- * sessionless client sends when it calls again. A handler reads it before it does anything a
- * decline rules out, and it is read once: the request it answers is no longer waiting, so the
- * thread's session forgets it.
- */
-export const answered = Effect.fn("McpClientInput.answered")(function* (key: string) {
-  const context = Option.getOrUndefined(yield* Effect.serviceOption(McpSchema.McpRequestContext));
-  const answer = context?.inputResponses?.[key];
-  if (answer === undefined || context?.requestState === undefined) return undefined;
-  const { state, id } = sentState(context.requestState);
-  if (answer.action === "accept") return { state, answer: yield* accepted(id, state) };
-  const requests = yield* threadRequests;
-  if (requests !== undefined && id !== undefined) {
-    yield* requests.sessions.forgetApprovalRequest(requests.thread.threadId, id);
-  }
-  return { state, answer: "declined" as const };
-});
-
-/**
  * Asks the person behind the calling MCP client to approve `message`, by MCP elicitation.
  * `state` names what is being approved: an answer counts only for the state it was given for,
  * so asking again with another state asks the person again.

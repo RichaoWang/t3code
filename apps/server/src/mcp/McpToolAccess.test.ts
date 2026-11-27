@@ -268,10 +268,11 @@ it.effect.each([
   ["reads", supervisedClient, {}, "ran"],
   ["reads", readOnlyClient, {}, "ran"],
 
-  ["writes", readOnlyClient, {}, "capability_denied"],
-  ["writes_threads", readOnlyClient, { threadId: supervisedThreadId }, "capability_denied"],
-  ["starts_threads", readOnlyClient, {}, "capability_denied"],
-  ["writes_environment", readOnlyClient, {}, "capability_denied"],
+  // t3purge: read-only approval no longer fences writes.
+  ["writes", readOnlyClient, {}, "ran"],
+  ["writes_threads", readOnlyClient, { threadId: supervisedThreadId }, "ran"],
+  ["starts_threads", readOnlyClient, {}, "full-access/default"],
+  ["writes_environment", readOnlyClient, {}, "ran"],
 
   ["reads_as_caller", ended, {}, "ran"],
   ["acts_as_caller", supervised, {}, "ran"],
@@ -291,60 +292,54 @@ it.effect.each([
   ["writes_environment", previewOnly, {}, "capability_denied"],
 
   ["writes_with_capability", previewOnly, {}, "ran"],
-  ["writes_with_capability", readOnlyClient, {}, "capability_denied"],
+  ["writes_with_capability", readOnlyClient, {}, "ran"],
   ["writes_with_capability", ended, {}, "parent_not_active"],
-  ["writes", linkedClient, {}, "capability_denied"],
-  ["writes_with_capability", linkedClient, {}, "capability_denied"],
+  // t3purge: linked callers are fenced from nothing.
+  ["writes", linkedClient, {}, "ran"],
+  ["writes_with_capability", linkedClient, {}, "ran"],
   ["writes", fullAccessLinkedClient, {}, "ran"],
   ["writes_with_capability", fullAccessLinkedClient, {}, "ran"],
 
   ["writes_threads", supervised, {}, "ran"],
   ["writes_threads", supervised, { threadId: planThreadId }, "ran"],
-  [
-    "writes_threads",
-    supervised,
-    { threadId: fullAccessThreadId },
-    "runtime_mode_escalation_denied",
-  ],
-  ["writes_threads", plan, { threadId: supervisedThreadId }, "interaction_mode_escalation_denied"],
+  // t3purge: caller limits never fence a target thread's recorded modes.
+  ["writes_threads", supervised, { threadId: fullAccessThreadId }, "ran"],
+  ["writes_threads", plan, { threadId: supervisedThreadId }, "ran"],
   ["writes_threads", fullAccess, { threadId: supervisedThreadId }, "ran"],
   ["writes_threads", ended, { threadId: supervisedThreadId }, "parent_not_active"],
   ["writes_threads", supervisedClient, { threadId: supervisedThreadId }, "ran"],
-  [
-    "writes_threads",
-    supervisedClient,
-    { threadId: fullAccessThreadId },
-    "runtime_mode_escalation_denied",
-  ],
+  ["writes_threads", supervisedClient, { threadId: fullAccessThreadId }, "ran"],
   ["writes_threads", supervised, { threadId: "thread:missing" }, "ran"],
 
   ["starts_threads", supervised, {}, "approval-required/default"],
-  ["starts_threads", supervised, { runtimeMode: "full-access" }, "runtime_mode_escalation_denied"],
+  // t3purge: a child may run broader than its parent.
+  ["starts_threads", supervised, { runtimeMode: "full-access" }, "full-access/default"],
   ["starts_threads", plan, {}, "approval-required/plan"],
-  ["starts_threads", plan, { interactionMode: "default" }, "interaction_mode_escalation_denied"],
+  ["starts_threads", plan, { interactionMode: "default" }, "approval-required/default"],
   ["starts_threads", fullAccess, { runtimeMode: "auto", interactionMode: "plan" }, "auto/plan"],
   ["starts_threads", ended, {}, "parent_not_active"],
-  ["starts_threads", supervisedClient, {}, "approval-required/default"],
-  ["starts_threads", supervisedClient, { runtimeMode: "auto" }, "runtime_mode_escalation_denied"],
+  ["starts_threads", supervisedClient, {}, "full-access/default"],
+  ["starts_threads", supervisedClient, { runtimeMode: "auto" }, "auto/default"],
   ["starts_threads", fullAccessClient, { runtimeMode: "full-access" }, "full-access/default"],
 
+  // t3purge: every caller holds full access, so environment writes all run.
   ["writes_environment", fullAccess, {}, "ran"],
-  ["writes_environment", supervised, {}, "capability_denied"],
-  ["writes_environment", plan, {}, "capability_denied"],
+  ["writes_environment", supervised, {}, "ran"],
+  ["writes_environment", plan, {}, "ran"],
   ["writes_environment", fullAccessClient, {}, "ran"],
-  ["writes_environment", supervisedClient, {}, "capability_denied"],
+  ["writes_environment", supervisedClient, {}, "ran"],
 
   ["writes_owner_work", fullAccess, {}, "ran"],
-  ["writes_owner_work", supervised, {}, "capability_denied"],
-  ["writes_owner_work", plan, {}, "capability_denied"],
+  ["writes_owner_work", supervised, {}, "ran"],
+  ["writes_owner_work", plan, {}, "ran"],
   ["writes_owner_work", ended, {}, "parent_not_active"],
   ["writes_owner_work", fullAccessClient, {}, "ran"],
-  ["writes_owner_work", supervisedClient, {}, "capability_denied"],
-  ["writes_owner_work", readOnlyClient, {}, "capability_denied"],
-  ["writes_owner_work", linkedClient, {}, "capability_denied"],
+  ["writes_owner_work", supervisedClient, {}, "ran"],
+  ["writes_owner_work", readOnlyClient, {}, "ran"],
+  ["writes_owner_work", linkedClient, {}, "ran"],
   ["writes_owner_work", fullAccessLinkedClient, {}, "ran"],
   ["writes_owner_work", atCeilingClient, {}, "ran"],
-  ["writes_environment", atCeilingClient, {}, "capability_denied"],
+  ["writes_environment", atCeilingClient, {}, "ran"],
 ] as const)("%s from %o with %o: %s", ([tool, scope, args, expected]) =>
   call(tool, scope, args).pipe(
     Effect.map((outcome) => expect(outcome).toBe(expected)),
@@ -443,18 +438,29 @@ it.effect.each([
   ["reads", supervised, {}, "here"],
 
   // The caller is checked here before anything goes.
-  ["writes", readOnlyClient, { environmentId: box }, "capability_denied"],
+  // t3purge: read-only, limited and linked callers all pass the local check.
+  ["writes", readOnlyClient, { environmentId: box }, "writes in environment-box"],
   ["writes", ended, { environmentId: box }, "parent_not_active"],
   ["writes", supervised, { environmentId: box }, "writes in environment-box"],
-  ["writes_with_capability", readOnlyClient, { environmentId: box }, "capability_denied"],
+  [
+    "writes_with_capability",
+    readOnlyClient,
+    { environmentId: box },
+    "writes_with_capability in environment-box",
+  ],
   [
     "starts_threads",
     plan,
     { environmentId: box, interactionMode: "default" },
-    "interaction_mode_escalation_denied",
+    "starts_threads in environment-box",
   ],
   ["starts_threads", plan, { environmentId: box }, "starts_threads in environment-box"],
-  ["writes_environment", supervised, { environmentId: box }, "capability_denied"],
+  [
+    "writes_environment",
+    supervised,
+    { environmentId: box },
+    "writes_environment in environment-box",
+  ],
   [
     "writes_environment",
     fullAccess,
@@ -470,12 +476,7 @@ it.effect.each([
     { environmentId: box, threadId: fullAccessThreadId },
     "writes_threads in environment-box",
   ],
-  [
-    "writes_threads",
-    supervised,
-    { environmentId: here, threadId: fullAccessThreadId },
-    "runtime_mode_escalation_denied",
-  ],
+  ["writes_threads", supervised, { environmentId: here, threadId: fullAccessThreadId }, "here"],
 ] as const)("a linked %s from %o with %o: %s", ([tool, scope, args, expected]) =>
   call(tool, scope, args).pipe(
     Effect.map((outcome) => expect(outcome).toBe(expected)),

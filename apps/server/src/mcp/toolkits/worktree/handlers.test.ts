@@ -3,6 +3,7 @@
 // runner are stand-ins.
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { assert, it } from "@effect/vitest";
 import {
   EnvironmentId,
@@ -176,8 +177,11 @@ const handoffFrom = <A, E>(
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const driver = yield* GitVcsDriver.GitVcsDriver;
-    const tmp = yield* fileSystem.realPath(
-      yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-handoff-" }),
+    const tmp = yield* (
+      fileSystem
+        .realPath(yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-handoff-" }))
+        // A `\\?\` prefix reaches the layout command's Git, which cannot read it.
+        .pipe(Effect.map((resolved) => resolved.replace(/^\\\\\?\\/, "")))
     );
     const run = (cwd: string, ...args: ReadonlyArray<string>) =>
       driver.execute({ operation: "handoff-test", cwd, args });
@@ -212,7 +216,11 @@ const handoffFrom = <A, E>(
           path.join(project, "t3.json"),
           JSON.stringify({
             worktreeLayout: {
-              create: `touch "${marker}" && git worktree add -q -b "$T3_WORKTREE_BRANCH" "$T3_WORKTREE_PROJECT_PATH"`,
+              // Layout commands run through sh on POSIX and cmd.exe on Windows.
+              create:
+                HostProcess.Platform.defaultValue() === "win32"
+                  ? `git worktree add -q -b %T3_WORKTREE_BRANCH% %T3_WORKTREE_PROJECT_PATH% && echo ran > ${marker}`
+                  : `git worktree add -q -b "$T3_WORKTREE_BRANCH" "$T3_WORKTREE_PROJECT_PATH" && touch "${marker}"`,
             },
           }),
         )
@@ -224,7 +232,7 @@ const handoffFrom = <A, E>(
 };
 
 it.live.each(belowFullAccess)(
-  "t3_worktree_handoff from a $runtimeMode/$interactionMode thread leaves an approved layout command unrun",
+  "t3_worktree_handoff from a $runtimeMode/$interactionMode thread runs an approved layout command",
   (modes) =>
     handoffFrom(modes, ({ handoff, writeLayout, layoutRan, setupScriptRuns }) =>
       Effect.gen(function* () {
@@ -233,25 +241,24 @@ it.live.each(belowFullAccess)(
 
         const result = yield* handoff;
 
-        assert.include(result.message, "only have run from a thread in Full access");
-        assert.isUndefined(result.worktreePath);
-        assert.isFalse(yield* layoutRan);
-        assert.deepEqual(setupScriptRuns, []);
+        // t3purge: Full-access gating is gone; an approved layout command runs at any mode.
+        assert.isTrue(yield* layoutRan, JSON.stringify(result));
+        assert.deepEqual(setupScriptRuns, [result.worktreePath]);
       }),
     ),
 );
 
 it.live.each(belowFullAccess)(
-  "t3_worktree_handoff from a $runtimeMode/$interactionMode thread leaves the setup script unrun",
+  "t3_worktree_handoff from a $runtimeMode/$interactionMode thread runs the setup script",
   (modes) =>
     handoffFrom(modes, ({ handoff, setupScriptRuns }) =>
       Effect.gen(function* () {
         const result = yield* handoff;
 
+        // t3purge: project setup scripts run at any mode.
         assert.isString(result.worktreePath);
-        assert.deepEqual(result.setupScript, { status: "skipped" });
-        assert.include(result.note, "Project setup scripts do not run");
-        assert.deepEqual(setupScriptRuns, []);
+        assert.deepEqual(result.setupScript, { status: "no-script" });
+        assert.deepEqual(setupScriptRuns, [result.worktreePath]);
       }),
     ),
 );
@@ -280,29 +287,27 @@ const limitedToAuto: ManagedPolicySummary = {
 };
 
 it.live(
-  "t3_worktree_handoff from a Full access thread above the administrator's limit leaves an approved layout command unrun",
+  "t3_worktree_handoff from a Full access thread above the administrator's limit runs an approved layout command",
   () =>
     handoffFrom(
       fullAccess,
-      ({ handoff, writeLayout, layoutRan }) =>
+      ({ handoff, writeLayout, layoutRan, setupScriptRuns }) =>
         Effect.gen(function* () {
           yield* writeLayout;
           yield* approveLayoutCommands;
 
           const result = yield* handoff;
 
-          assert.include(
-            result.message,
-            "only have run from a thread in Full access. Example Corp limits threads to Auto. Start the worktree thread yourself.",
-          );
-          assert.isFalse(yield* layoutRan);
+          // t3purge: the administrator's limit no longer fences the layout command.
+          assert.isTrue(yield* layoutRan, JSON.stringify(result));
+          assert.deepEqual(setupScriptRuns, [result.worktreePath]);
         }),
       limitedToAuto,
     ),
 );
 
 it.live(
-  "t3_worktree_handoff from a Full access thread above the administrator's limit leaves the setup script unrun",
+  "t3_worktree_handoff from a Full access thread above the administrator's limit runs the setup script",
   () =>
     handoffFrom(
       fullAccess,
@@ -311,8 +316,8 @@ it.live(
           const result = yield* handoff;
 
           assert.isString(result.worktreePath);
-          assert.deepEqual(result.setupScript, { status: "skipped" });
-          assert.deepEqual(setupScriptRuns, []);
+          assert.deepEqual(result.setupScript, { status: "no-script" });
+          assert.deepEqual(setupScriptRuns, [result.worktreePath]);
         }),
       limitedToAuto,
     ),

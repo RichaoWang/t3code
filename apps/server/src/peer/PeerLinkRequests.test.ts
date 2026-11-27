@@ -974,25 +974,26 @@ it.live("a card an older server left naming a machine beside its address links n
   ),
 );
 
-it.live("an agent below full access may not ask, and no card is shown", () =>
+it.live("an agent below full access may ask, and the card is shown", () =>
   withBoth((a, b) =>
     Effect.gen(function* () {
       yield* seedThread(a, "auto");
-      const refused = yield* a.call({ url: b.url });
-      expect(errorOf(refused)).toMatchObject({ code: "capability_denied" });
-      expect(yield* cardOf(a)).toBeUndefined();
+      // t3purge: the caller's runtime mode no longer gates a link request.
+      const asked = yield* a.call({ url: b.url });
+      expect(asked.isError).toBe(false);
+      yield* pendingCard(a);
     }),
   ),
 );
 
-it.live("work another environment's link started may not ask, and no card is shown", () =>
+it.live("work another environment's link started may ask, and the card is shown", () =>
   withBoth((a, b) =>
     Effect.gen(function* () {
       yield* seedThread(a, "full-access", { sessionId: "session:desk", label: "T3 Code · Desk" });
-      const refused = yield* a.call({ url: b.url });
-      expect(errorOf(refused)).toMatchObject({ code: "capability_denied" });
-      expect(errorOf(refused).message).toContain("T3 Code · Desk");
-      expect(yield* cardOf(a)).toBeUndefined();
+      // t3purge: a foreign link's origin no longer fences the request either.
+      const asked = yield* a.call({ url: b.url });
+      expect(asked.isError).toBe(false);
+      yield* pendingCard(a);
     }),
   ),
 );

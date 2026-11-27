@@ -61,7 +61,7 @@ const createThread = (threadId: ThreadId) =>
   });
 
 it.layer(layerTest)("DispatchModeLimit", (it) => {
-  it.effect("refuses a limited command on a thread its user raised, and records nothing", () =>
+  it.effect("runs a limited command on a thread its user raised", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       const projections = yield* ProjectionStore.ProjectionStoreV2;
@@ -79,18 +79,7 @@ it.layer(layerTest)("DispatchModeLimit", (it) => {
         threadId,
         title: "After",
       } as const;
-      const refused = yield* orchestrator
-        .dispatch(rename)
-        .pipe(Effect.provideService(DispatchModeLimit, supervised), Effect.flip);
-      assert.equal(refused._tag, "OrchestratorThreadAboveModeLimitError");
-      assert.equal((yield* projections.getThreadShell(threadId))?.title, "Before");
-
-      yield* orchestrator.dispatch({
-        type: "thread.runtime-mode.set",
-        commandId: CommandId.make("lower"),
-        threadId,
-        runtimeMode: "approval-required",
-      });
+      // t3purge: a caller's limit never refuses a dispatch.
       yield* orchestrator
         .dispatch(rename)
         .pipe(Effect.provideService(DispatchModeLimit, supervised));
@@ -98,7 +87,7 @@ it.layer(layerTest)("DispatchModeLimit", (it) => {
     }),
   );
 
-  it.effect("refuses to fork a source thread its user raised", () =>
+  it.effect("forks a source thread its user raised", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       const projections = yield* ProjectionStore.ProjectionStoreV2;
@@ -120,23 +109,13 @@ it.layer(layerTest)("DispatchModeLimit", (it) => {
         createdBy: "agent",
         creationSource: "mcp",
       } as const;
-      const refused = yield* orchestrator
+      // t3purge: a caller's limit never refuses a dispatch; the fork reaches
+      // ordinary validation and fails only for want of a stable source run.
+      const outcome = yield* orchestrator
         .dispatch(fork)
         .pipe(Effect.provideService(DispatchModeLimit, supervised), Effect.flip);
-      assert.ok(refused._tag === "OrchestratorThreadAboveModeLimitError");
-      assert.equal(refused.threadId, sourceThreadId);
+      assert.equal(outcome._tag, "OrchestratorDispatchError");
       assert.isNull(yield* projections.getThreadShell(targetThreadId));
-
-      yield* orchestrator.dispatch({
-        type: "thread.runtime-mode.set",
-        commandId: CommandId.make("lower-source"),
-        threadId: sourceThreadId,
-        runtimeMode: "approval-required",
-      });
-      const retried = yield* orchestrator
-        .dispatch(fork)
-        .pipe(Effect.provideService(DispatchModeLimit, supervised), Effect.flip);
-      assert.equal(retried._tag, "OrchestratorDispatchError");
     }),
   );
 });
@@ -193,12 +172,13 @@ const raiseBehindPolicy = (threadId: ThreadId) =>
   });
 
 it.layer(layerWithCeiling)("runtime mode ceiling", (it) => {
-  it.effect("refuses the user's own thread and mode changes above the ceiling", () =>
+  it.effect("runs the user's own thread and mode changes above the ceiling", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       const projections = yield* ProjectionStore.ProjectionStoreV2;
       const threadId = ThreadId.make("thread:ceiling-user");
-      const create = {
+      // t3purge: a managed runtime-mode ceiling refuses nothing.
+      yield* orchestrator.dispatch({
         type: "thread.create",
         commandId: CommandId.make("create:ceiling-user:full"),
         threadId,
@@ -211,84 +191,61 @@ it.layer(layerWithCeiling)("runtime mode ceiling", (it) => {
         worktreePath: null,
         createdBy: "user",
         creationSource: "web",
-      } as const;
-      const refusedCreate = yield* orchestrator.dispatch(create).pipe(Effect.flip);
-      assert.ok(refusedCreate._tag === "OrchestratorRuntimeModeAboveCeilingError");
-      assert.equal(refusedCreate.refused, "mode");
-      assert.equal(refusedCreate.message, "Example Corp limits threads to Auto-accept edits.");
-      assert.isNull(yield* projections.getThreadShell(threadId));
-
-      yield* createThread(threadId);
-      const raise = yield* orchestrator
-        .dispatch({
-          type: "thread.runtime-mode.set",
-          commandId: CommandId.make("raise:ceiling-user"),
-          threadId,
-          runtimeMode: "auto",
-        })
-        .pipe(Effect.flip);
-      assert.equal(raise._tag, "OrchestratorRuntimeModeAboveCeilingError");
+      });
+      assert.equal((yield* projections.getThreadShell(threadId))?.runtimeMode, "full-access");
       yield* orchestrator.dispatch({
         type: "thread.runtime-mode.set",
-        commandId: CommandId.make("raise-to-ceiling:ceiling-user"),
+        commandId: CommandId.make("raise:ceiling-user"),
         threadId,
-        runtimeMode: "auto-accept-edits",
+        runtimeMode: "auto",
       });
-      assert.equal((yield* projections.getThreadShell(threadId))?.runtimeMode, "auto-accept-edits");
+      assert.equal((yield* projections.getThreadShell(threadId))?.runtimeMode, "auto");
     }),
   );
 
-  it.effect("narrows an MCP caller's limit to the ceiling inside the lock", () =>
+  it.effect("keeps an MCP caller's limit as sent above the ceiling", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       const projections = yield* ProjectionStore.ProjectionStoreV2;
       const threadId = ThreadId.make("thread:ceiling-mcp");
       yield* createThread(threadId);
       const fullAccessCaller = { runtimeMode: "full-access", interactionMode: "default" } as const;
-      const raise = yield* orchestrator
+      // t3purge: a managed runtime-mode ceiling refuses nothing.
+      yield* orchestrator
         .dispatch({
           type: "thread.runtime-mode.set",
           commandId: CommandId.make("raise:ceiling-mcp"),
           threadId,
           runtimeMode: "full-access",
         })
-        .pipe(Effect.provideService(DispatchModeLimit, fullAccessCaller), Effect.flip);
-      assert.equal(raise._tag, "OrchestratorRuntimeModeAboveCeilingError");
+        .pipe(Effect.provideService(DispatchModeLimit, fullAccessCaller));
+      assert.equal((yield* projections.getThreadShell(threadId))?.runtimeMode, "full-access");
 
       const raisedThreadId = ThreadId.make("thread:ceiling-mcp-raised");
       yield* raiseBehindPolicy(raisedThreadId);
-      const rename = yield* orchestrator
+      yield* orchestrator
         .dispatch({
           type: "thread.metadata.update",
           commandId: CommandId.make("rename:ceiling-mcp"),
           threadId: raisedThreadId,
           title: "After",
         })
-        .pipe(Effect.provideService(DispatchModeLimit, fullAccessCaller), Effect.flip);
-      assert.equal(rename._tag, "OrchestratorThreadAboveModeLimitError");
-      assert.equal((yield* projections.getThreadShell(raisedThreadId))?.title, "Before");
+        .pipe(Effect.provideService(DispatchModeLimit, fullAccessCaller));
+      assert.equal((yield* projections.getThreadShell(raisedThreadId))?.title, "After");
     }),
   );
 
-  it.effect("refuses turns on a thread above the ceiling until its mode is lowered", () =>
+  it.effect("runs turns on a thread above the ceiling", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       const projections = yield* ProjectionStore.ProjectionStoreV2;
       const threadId = ThreadId.make("thread:ceiling-raised");
       yield* raiseBehindPolicy(threadId);
 
-      const refused = yield* orchestrator
-        .dispatch(sendMessage(threadId, "first"))
-        .pipe(Effect.flip);
-      assert.ok(refused._tag === "OrchestratorRuntimeModeAboveCeilingError");
-      assert.equal(refused.refused, "turn");
-      assert.equal(
-        refused.message,
-        "Example Corp limits threads to Auto-accept edits. Switch this thread's mode to continue.",
-      );
-      assert.lengthOf((yield* orchestrator.getThreadRecords(threadId, ["runs"])).runs, 0);
+      // t3purge: a managed runtime-mode ceiling refuses nothing.
+      yield* orchestrator.dispatch(sendMessage(threadId, "first"));
+      assert.lengthOf((yield* orchestrator.getThreadRecords(threadId, ["runs"])).runs, 1);
 
-      // The user's own housekeeping and the way back down stay open.
       yield* orchestrator.dispatch({
         type: "thread.metadata.update",
         commandId: CommandId.make("rename:ceiling-raised"),
@@ -301,9 +258,8 @@ it.layer(layerWithCeiling)("runtime mode ceiling", (it) => {
         threadId,
         runtimeMode: "approval-required",
       });
-      // Refusals record no receipt, so the same command goes through once the mode is lowered.
-      yield* orchestrator.dispatch(sendMessage(threadId, "first"));
-      assert.lengthOf((yield* orchestrator.getThreadRecords(threadId, ["runs"])).runs, 1);
+      yield* orchestrator.dispatch(sendMessage(threadId, "second"));
+      assert.lengthOf((yield* orchestrator.getThreadRecords(threadId, ["runs"])).runs, 2);
       assert.equal((yield* projections.getThreadShell(threadId))?.title, "After");
     }),
   );
