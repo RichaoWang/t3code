@@ -269,6 +269,9 @@ export interface AcpAdapterV2RuntimeInput {
   readonly resumeSessionId?: string;
   readonly interruptPromptOnCancel?: boolean;
   readonly sessionMeta?: NonNullable<AcpSessionRuntime.AcpSessionRuntimeOptions["sessionMeta"]>;
+  readonly sessionSystemPrompt?: NonNullable<
+    AcpSessionRuntime.AcpSessionRuntimeOptions["sessionSystemPrompt"]
+  >;
   readonly clientCapabilities: EffectAcpSchema.InitializeRequest["clientCapabilities"];
   readonly clientInfo: AcpSessionRuntime.AcpSessionRuntimeOptions["clientInfo"];
   readonly requestLogger?: NonNullable<AcpSessionRuntime.AcpSessionRuntimeOptions["requestLogger"]>;
@@ -439,6 +442,8 @@ interface AcpPromptOutcomeFailure {
 }
 
 export interface AcpAdapterV2Flavor {
+  /** Sent on `session/new` for agents with a systemPrompt extension (Devin). */
+  readonly sessionSystemPrompt?: AcpSessionRuntime.AcpSessionRuntimeOptions["sessionSystemPrompt"];
   readonly buildAttachmentPrompt?: (input: {
     readonly text: string;
     readonly attachments: ReadonlyArray<ChatAttachment>;
@@ -3363,6 +3368,9 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             mcpServers: mcpContext.servers,
             acpMcpServers: mcpContext.acpServers,
             httpMcpServers: mcpContext.httpServers,
+            ...(flavor.sessionSystemPrompt === undefined
+              ? {}
+              : { sessionSystemPrompt: flavor.sessionSystemPrompt }),
             ...(mcpContext.processEnvironment === undefined
               ? {}
               : { processEnvironment: mcpContext.processEnvironment }),

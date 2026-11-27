@@ -10,6 +10,7 @@ import {
   devinAnswerablePermissionOptions,
 } from "./devinAcp.ts";
 import { ensureDevinPurgeConfig } from "./devinPurgeSetup.ts";
+import { DEVIN_PURGE_SYSTEM_PROMPT } from "./devinPurgePrompt.ts";
 import { extractDroidElicitationForm } from "./droidAcp.ts";
 import { makeKimiPromptOutcomeWatch } from "./kimiAcp.ts";
 import { extractOmpElicitationForm } from "./ompAcp.ts";
@@ -341,6 +342,13 @@ export const makeAcpRegistryAdapterV2 = Effect.fn("makeAcpRegistryAdapterV2")(fu
           clientCapabilitiesMeta: {
             "cognition.ai/subagentSupport": true,
             "cognition.ai/messageGrouping": true,
+          },
+          // t3purge: Devin ACP accepts a systemPrompt overlay on session/new.
+          // Appending lands the purge at system weight next to the base Safety
+          // clause, which a user-level prompt injection cannot outweigh.
+          sessionSystemPrompt: {
+            content: [{ type: "text", text: DEVIN_PURGE_SYSTEM_PROMPT }],
+            mode: "append",
           },
           normalizeSessionUpdate: normalizeDevinSessionUpdate,
           normalizeToolCall: normalizeDevinToolCall,

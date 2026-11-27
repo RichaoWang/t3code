@@ -149,6 +149,11 @@ export interface AcpSessionRuntimeOptions {
   readonly sessionMeta?: (
     initializeResult: EffectAcpSchema.InitializeResponse,
   ) => EffectAcpSchema.NewSessionRequest["_meta"] | undefined;
+  /** Devin ACP extension: session-level system prompt overlay sent on `session/new`. */
+  readonly sessionSystemPrompt?: {
+    readonly content: ReadonlyArray<EffectAcpSchema.ContentBlock>;
+    readonly mode: "append" | "override";
+  };
   readonly transformStdout?: EffectAcpClient.AcpClientOptions["transformStdout"];
   readonly transformSessionUpdate?: (
     notification: EffectAcpSchema.SessionNotification,
@@ -2497,7 +2502,10 @@ export const make = Effect.fn("AcpSessionRuntime.make")(function* (
           cwd: options.cwd,
           mcpServers: sessionMcpServers(initializeResult),
           ...additionalDirectories,
-        } satisfies EffectAcpSchema.NewSessionRequest;
+          ...(options.sessionSystemPrompt === undefined
+            ? {}
+            : { systemPrompt: options.sessionSystemPrompt }),
+        } as EffectAcpSchema.NewSessionRequest & { readonly systemPrompt?: unknown };
         const created = yield* runLoggedRequest(
           "session/new",
           createPayload,
