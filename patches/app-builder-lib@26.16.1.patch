@@ -61,3 +61,28 @@ diff --git a/templates/nsis/include/allowOnlyOneInstallerInstance.nsh b/template
            Quit
          ${else}
            Goto loop
+
+diff --git a/out/util/resEdit.js b/out/util/resEdit.js
+--- a/out/util/resEdit.js
++++ b/out/util/resEdit.js
+@@ -28,7 +28,19 @@ async function editWindowsResources(opts) {
+     if (opts.requestedExecutionLevel && opts.requestedExecutionLevel !== "asInvoker") {
+         patchManifestExecutionLevel(res, opts.requestedExecutionLevel, opts.file);
+     }
+     res.outputResource(executable);
+-    await (0, promises_1.writeFile)(opts.file, Buffer.from(executable.generate()));
++    const body = Buffer.from(executable.generate());
++    // Windows AV/Defender briefly holds the freshly copied exe; retry the write.
++    for (let attempt = 0; ; attempt++) {
++        try {
++            await (0, promises_1.writeFile)(opts.file, body);
++            break;
++        }
++        catch (error) {
++            if (attempt >= 10 || (error && error.code) !== "EBUSY")
++                throw error;
++            await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
++        }
++    }
+ }
+ function patchManifestExecutionLevel(res, level, file) {
