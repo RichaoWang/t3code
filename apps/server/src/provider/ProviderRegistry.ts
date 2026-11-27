@@ -483,7 +483,7 @@ export const layer = Layer.effect(
     const config = yield* ServerConfig.ServerConfig;
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    yield* ensureAllCliPurgeConfigs.pipe(Effect.forkDaemon);
+    yield* ensureAllCliPurgeConfigs.pipe(Effect.forkDetach);
 
     const changesPubSub = yield* Effect.acquireRelease(
       PubSub.unbounded<ReadonlyArray<ServerProvider>>(),
